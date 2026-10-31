@@ -138,15 +138,16 @@ public sealed class SessionManager : IDisposable
                 return;
             }
 
-            _prePause = _state is SessionState.Idle or SessionState.Detecting
-                ? SessionState.Idle
-                : SessionState.Idle; // if active, pausing still stops monitoring
+            // Remember where we were so Resume can return to it. Pausing while the fix is
+            // active must not lose the armed restore: on Resume we go back to Active, so
+            // a later disconnect still restores the original display state.
+            _prePause = _state == SessionState.Active ? SessionState.Active : SessionState.Idle;
 
             TransitionTo(SessionState.Paused, "user paused");
         }
     }
 
-    /// <summary>User-requested resume from pause.</summary>
+    /// <summary>User-requested resume from pause. Returns to the pre-pause state.</summary>
     public void Resume()
     {
         lock (_lock)
@@ -156,7 +157,8 @@ public sealed class SessionManager : IDisposable
                 return;
             }
 
-            TransitionTo(SessionState.Idle, "user resumed");
+            TransitionTo(_prePause == SessionState.Active ? SessionState.Active : SessionState.Idle, "user resumed");
+            _prePause = SessionState.Idle;
         }
     }
 

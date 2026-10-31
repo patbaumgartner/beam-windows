@@ -86,4 +86,20 @@ public class SessionManagerTests
         session.Resume();
         Assert.Equal(SessionState.Idle, session.State);
     }
+
+    [Fact]
+    public void Pause_WhileActive_Resume_ReturnsToActive()
+    {
+        // Pausing during a presentation must not lose the armed restore: resuming returns
+        // to Active (the fix stays applied and a later disconnect still restores).
+        using var session = new SessionManager();
+        session.TryBeginFix();
+        session.MarkActive();
+
+        session.Pause();
+        Assert.Equal(SessionState.Paused, session.State);
+
+        session.Resume();
+        Assert.Equal(SessionState.Active, session.State);
+    }
 }

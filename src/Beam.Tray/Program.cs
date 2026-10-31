@@ -29,6 +29,14 @@ internal static class Program
                                     a.Equals("-hidden", StringComparison.OrdinalIgnoreCase) ||
                                     a.Equals("/hidden", StringComparison.OrdinalIgnoreCase));
 
+        // Single instance per user. Without this, an autostart instance and a manual
+        // launch would run two monitor loops and could double-apply the display fix.
+        using var singleInstance = new Mutex(initiallyOwned: true, @"Local\Beam.SingleInstance", out bool isFirstInstance);
+        if (!isFirstInstance)
+        {
+            return;
+        }
+
         var session = new SessionManager();
         Action<string> log = WriteLog;
 

@@ -5,6 +5,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
 
 permissions:
   contents: write
@@ -32,9 +37,10 @@ jobs:
         id: version
         shell: pwsh
         run: |
-          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { 'v0.1.0' }
+          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { '${{ inputs.tag }}' }
           $v = $tag.TrimStart('v')
           Write-Output "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
 
       - name: Publish tray
         run: dotnet publish src/Beam.Tray -c Release -p:Version=${{ steps.version.outputs.version }}
@@ -60,6 +66,6 @@ jobs:
       - name: Create/update GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
           files: ${{ steps.loc.outputs.path }}
           generate_release_notes: true

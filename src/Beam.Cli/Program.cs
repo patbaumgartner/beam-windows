@@ -235,6 +235,13 @@ static bool args_Contains(string flag)
     return Environment.GetCommandLineArgs().Skip(1).Contains(flag);
 }
 
+/// <summary>Returns the value that follows <paramref name="flag"/> in <paramref name="args"/>, or null.</summary>
+static string? ArgValue(string[] args, string flag)
+{
+    int i = Array.IndexOf(args, flag);
+    return i >= 0 && i + 1 < args.Length ? args[i + 1] : null;
+}
+
 static int Dpi(string[] args, bool json)
 {
     if (args.Length < 3)
@@ -244,8 +251,25 @@ static int Dpi(string[] args, bool json)
     }
 
     string action = args[1].ToLowerInvariant();
+
+    // Resolve the target display: an explicit --device <gdi> (e.g. \\.\DISPLAY2), else the
+    // first active external display, else the first active path.
+    string? deviceGdi = ArgValue(args, "--device");
+
     var inventory = new DisplayInventory();
-    DisplayPath? path = inventory.Query().ActivePaths.FirstOrDefault(p => p.Target.IsInternal || !p.Target.IsInternal);
+    DisplayPath? path = inventory.Query().ActivePaths
+        .Where(p => deviceGdi is null
+                    ? !p.Target.IsInternal   // default: the external display
+                    : p.SourceGdiName.Equals(deviceGdi, StringComparison.OrdinalIgnoreCase))
+        .FirstOrDefault();
+
+    if (deviceGdi is not null && path is null)
+    {
+        Console.Error.WriteLine($"No active display matching '--device {deviceGdi}'.");
+        return 1;
+    }
+
+    path ??= inventory.Query().ActivePaths.FirstOrDefault();
     if (path is null)
     {
         Console.Error.WriteLine("No active display found.");
