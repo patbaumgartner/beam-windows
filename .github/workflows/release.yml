@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: true
+        default: 'v0.1.0'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build release installer
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { '${{ inputs.tag }}' }
+          $v = $tag.TrimStart('v')
+          Write-Output "version=$v" >> $env:GITHUB_OUTPUT
+          Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Publish tray
+        run: dotnet publish src/Beam.Tray -c Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Publish CLI
+        run: dotnet publish src/Beam.Cli -c Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version 2.0
+
+          # Download Inno Setup from the official GitHub immutable release — the
+          # files.jrsoftware.org mirror 404s on the runner and choco is flaky.
+          $innoUrl  = 'https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/innosetup-7.1.1-x64.exe'
+          $tarFile  = "$env:TEMP\innosetup-7.1.1-x64.exe"
+          $innoDir  = "$env:TEMP\InnoSetup711"
+          $isccPath = "$innoDir\ISCC.exe"
+
+          if (-not (Test-Path $isccPath)) {
+            Write-Host "Downloading Inno Setup…"
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $innoUrl -OutFile $tarFile -UseBasicParsing
+            Write-Host "Extracting Inno Setup…"
+            New-Item -ItemType Directory -Force -Path $innoDir | Out-Null
+            Start-Process -FilePath $tarFile -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$innoDir`"" -Wait -NoNewWindow
+            if (-not (Test-Path $isccPath)) { throw "ISCC.exe not found after extraction: $isccPath" }
+          }
+
+          Write-Host "ISCC: $isccPath"
+          & $isccPath "/DMyAppVersion=${{ steps.version.outputs.version }}" /DOutputDir="$PWD\nightly" installer\Beam.iss
+
+      - name: Locate installer
+        id: loc
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem nightly\BeamSetup-*.exe | Select-Object -First 1
+          Write-Output "path=$($f.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Output "name=$($f.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Create/update GitHub release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          files: ${{ steps.loc.outputs.path }}
+          generate_release_notes: true

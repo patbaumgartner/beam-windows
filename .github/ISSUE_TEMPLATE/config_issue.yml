@@ -1,0 +1,18 @@
+---
+name: Config issue
+about: Questions about configuring Beam
+title: ''
+labels: question
+assignees: ''
+---
+
+**What are you trying to do?**
+Describe the setup you're trying to achieve.
+
+**What have you tried?**
+Include the output of `beam status --json` and `beam devices` if you can.
+
+**Environment**
+- Windows build:
+- External display model:
+- Beam version:
