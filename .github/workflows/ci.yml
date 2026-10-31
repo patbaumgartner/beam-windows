@@ -45,7 +45,7 @@ jobs:
         run: dotnet test Beam.sln --configuration ${{ matrix.configuration }} --no-build --logger "trx;LogFileName=results.trx"
 
       - name: Upload test results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         if: always()
         with:
           name: test-results-${{ matrix.configuration }}
@@ -87,7 +87,7 @@ jobs:
         run: Get-ChildItem nightly | Select-Object Name, Length
 
       - name: Upload installer
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: beam-snapshot-installer
           path: nightly/BeamSetup-*.exe
