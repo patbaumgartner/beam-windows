@@ -1,4 +1,5 @@
 using Beam.Core.NightLight;
+using Beam.Core.Ports;
 using Microsoft.Win32;
 
 namespace Beam.Windows.NightLight;
@@ -13,19 +14,6 @@ public sealed record NightLightEntry(
 {
     public bool IsValid => State is not null;
 }
-
-/// <summary>A captured state value, sufficient to restore it later.</summary>
-public sealed record NightLightSnapshot(
-    string KeyPath,
-    string ValueName,
-    byte[] RawBytes,
-    NightLightBlob Blob);
-
-/// <summary>Result of a write operation, including per-key detail.</summary>
-public sealed record NightLightWriteResult(
-    bool Success,
-    string Message,
-    IReadOnlyList<string> Details);
 
 /// <summary>
 /// Reads and writes the real Windows Night Light toggle through the per-user CloudStore.
@@ -42,7 +30,7 @@ public sealed record NightLightWriteResult(
 /// every write re-serializes with a fresh epoch instead of replaying raw bytes.
 /// </para>
 /// </remarks>
-public sealed class NightLightController
+public sealed class NightLightController : INightLightController
 {
     public const string ValueName = "Data";
 

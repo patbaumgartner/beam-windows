@@ -1,161 +1,170 @@
 # arc42 — 5. Building block view
 
+> This chapter describes the code that exists today. The original plan called for a WinUI 3
+> settings app, a named-pipe IPC layer and an EDID classifier; those are still Phase 2/3
+> ideas in the [roadmap](../05-delivery/roadmap.md), not part of the shipped 0.1.0 build.
+> The authoritative dependency rules live in
+> [docs/06-development/architecture.md](../06-development/architecture.md).
+
 ## 5.1 Level 1 — overall
 
 ```
-+---------------------------------------------------------------+
-| Beam.App  (WinUI 3, tray, settings, toasts, single instance)   |
-+-----------------------------+---------------------------------+
-                              |
-+-----------------------------v---------------------------------+
-| Beam.Core  (pure domain)                                      |
-|  TriggerEngine · Classifier · ModePlanner · ScalePlanner      |
-|  NightLightPlanner · SessionManager (state machine)           |
-|  Journal model · Profile model · Diagnostics timeline         |
-+-----------------------------+---------------------------------+
-                              | interfaces
-+-----------------------------v---------------------------------+
-| Beam.Windows  (adapters)                                      |
-|  DisplayInventory · DisplayModeController · TopologyReader    |
-|  EdidReader · NightLightController · GammaRampController      |
-|  DpiController · NotificationService · ConfigStore            |
-|  JournalStore · PipeServer · StartupTask · Logging            |
-+---------------------------------------------------------------+
++--------------------------------------------------------------------------+
+| Beam.Tray   (net10.0-windows, WinForms)    Beam.Cli (net10.0-windows)     |
+|  Program, TrayService, TrayPresentation     Program, CliApp, CommandLine  |
+|  composition root                           composition root            |
++------------------------------+---------------------------+---------------+
+                               |                           |
++------------------------------v---------------------------v---------------+
+| Beam.App   (net10.0, no UI, no P/Invoke)                                  |
+|  PresentationManager · SessionManager · JournalStore · FileLogSink        |
+|  talks only to Beam.Core ports                                            |
++------------------------------+-------------------------------------------+
+                               |
++------------------------------v-------------------------------------------+
+| Beam.Windows   (net10.0-windows)                                          |
+|  DisplayInventory · DisplayMonitor · DisplayModeController                |
+|  WindowsDpiController · NightLightController · DisplayNative              |
++------------------------------+-------------------------------------------+
+                               |
++------------------------------v-------------------------------------------+
+| Beam.Core   (net10.0, portable)                                           |
+|  DisplayTopology · TriggerCondition · AspectRatio · DpiScaleLadder        |
+|  ScalePlanner · NightLightBlobCodec · StartupCommand · Ports · Log        |
++--------------------------------------------------------------------------+
 ```
 
-## 5.2 Beam.Core
+Arrows point at *references*. `Beam.Tray` and `Beam.Cli` both reference Core, App and
+Windows; nothing references the composition roots. `Beam.App` and `Beam.Core` target plain
+`net10.0`, so they cannot accidentally compile a Windows-only API.
 
-| Block | Responsibility | Key interfaces |
-|---|---|---|
-| `TriggerEngine` | Debounce events, build topology snapshots, emit activation/deactivation | `IDisplayInventory`, `IClock` |
-| `Classifier` | Score a display, apply overrides, decide auto/ask/ignore | `IEdidReader`, `IClassificationStore` |
-| `ModePlanner` | Choose a 16:9 mode from an enumerated list per policy and topology | pure |
-| `ScalePlanner` | Compute target scale / detect the 960x540 trap | pure |
-| `NightLightPlanner` | Decide whether/where to turn Night Light off | pure |
-| `SessionManager` | State machine, transaction ordering, journal lifecycle | all of the above |
-| `RestorePlanner` | Reverse-order restore with "still ours" predicate | pure |
-| `ProfileStore` (model) | Learned per-device settings, migration, validation | `IProfileStore` |
-| `DiagnosticsLog` | Bounded ring buffer of decisions with reasons | `IClock` |
+## 5.2 Beam.Core — the portable domain
 
-**Rule:** `Beam.Core` must not reference `Beam.Windows`, WinUI, `Microsoft.Win32.*`, or
-`Windows.Win32.*`. It is testable on any OS.
+| Block | Responsibility |
+|---|---|
+| `DisplayTopology`, `DisplayPath`, `DisplayTarget`, `CloneGroup` | Immutable model of the CCD topology: source/target ids, modes, DPI relative values, friendly name, internal-panel flag |
+| `TriggerCondition` | The single definition of "a projector needs fixing": mirrored **and** an external display **and** an aspect mismatch |
+| `AspectRatio` | Classify 16:9 / 16:10 / other, with a tolerance |
+| `DpiScale`, `DpiScaleLadder`, `ScalePlanner` | Snap a requested percentage to the supported ladder, detect the 960×540 trap, choose a readable scale |
+| `NightLightBlobCodec`, `NightLightState` | Parse/serialise the registry blob, preserving unknown bytes |
+| `StartupCommand` | Compare/normalise `Run`-key command lines (`"…\Beam.exe"` vs `"…\Beam.exe" --hidden`) |
+| `Ports` (`ITopologySource`, `IDisplayChangeSource`, `IDisplayModeController`, `IDpiController`, `INightLightController`) | The only surface the application layer may use for platform work |
+| `Log`, `ILogSink` | Ambient logging facade; default is silent, the composition root installs a sink |
 
-## 5.3 Beam.Windows
+**Rule:** no UI types, no P/Invoke, no `Microsoft.Win32`, no reference to another Beam
+project. `Beam.Architecture.Tests` enforces it.
+
+## 5.3 Beam.App — orchestration
+
+| Block | Responsibility |
+|---|---|
+| `PresentationManager` | Serialises the apply and restore sequences, owns the journal handshake, recovery on launch, DPI selection, display-change handling |
+| `SessionManager` | `Idle`/`Applying`/`Active`/`Restoring`/`Paused` state machine; the **only** place a transition is logged |
+| `JournalStore` / `IJournalStore` | Atomic crash journal at `%LOCALAPPDATA%\Beam\journal.json`; active for the whole presentation, cleared only after a verified restore |
+| `FileLogSink` | `beam.log` + `beam-detailed.jsonl` in `%LOCALAPPDATA%\Beam`; never throws into the caller |
+
+`PresentationManager` depends exclusively on the Core ports, so the full
+apply → active → disconnect → restore cycle is unit-tested with fakes.
+
+## 5.4 Beam.Windows — adapters
 
 | Adapter | Responsibility | Notes |
 |---|---|---|
-| `DisplayInventory` | `QueryDisplayConfig` -> `TopologySnapshot` | active paths only |
-| `DisplayModeController` | enumerate/apply modes with `CDS_TEST` + verify | worker thread, timeout |
-| `TopologyReader` | clone groups, primary, positions, output technology | read-only in MVP |
-| `EdidReader` | device path -> EDID bytes -> `EdidInfo` | cached per session |
-| `NightLightController` | read/parse/write CloudStore state, snapshot bytes | strict parser, no guessing |
-| `GammaRampController` | save/set/restore gamma ramp per display | fallback only |
-| `DpiController` | read/set the **source** DPI scale via device-info `-3`/`-4`, verify, snapshot | relative steps; struct sizes 32/24; ADR-0013 |
-| `NotificationService` | toasts with actions | respects DND |
-| `ConfigStore` | atomic JSON read/write, schema version, backup | `%LOCALAPPDATA%\Beam` |
-| `JournalStore` | atomic session journal | `state\session.json` |
-| `PipeServer` | CLI IPC, same-user only, ACL | `\\.\pipe\Beam-<sid>` |
-| `StartupTask` | per-user run-at-login | no admin |
-| `Logging` | rolling file log + ETW | no PII |
-| `ProjectorClassifier` (optional) | scored EDID heuristic for `onlyProjectors` mode | Phase 2; off by default |
+| `DisplayInventory` | `QueryDisplayConfig` → `DisplayTopology`; capture a `ConnectionSnapshot` for change detection | Read-only, also used by the CLI |
+| `DisplayMonitor` | Poll the inventory every 250 ms, compare snapshots, raise `Changed` once per real change | Injectable capture; measures p95 detection latency |
+| `DisplayModeController` | Clone + best 16:9 mode, `CDS_TEST` before apply, verify; restore captured DEVMODEs | Worker-thread safe; returns an error string instead of throwing |
+| `WindowsDpiController` | Read/write the **source** DPI scale via device-info `-3`/`-4`, then verify | ADR-0013 |
+| `NightLightController` | Snapshot every parsable CloudStore state, disable, restore, re-read to verify | ADR-0006 |
+| `DisplayNative` | The single home for `DllImport` declarations, structs and constants | Kept small on purpose |
 
-## 5.4 Beam.App
+These are the only files allowed to call Windows. They are thin and integration-tested
+manually against the hardware matrix in the
+[test strategy](../05-delivery/test-strategy.md).
+
+## 5.5 Beam.Tray and Beam.Cli — composition roots
 
 | Component | Responsibility |
 |---|---|
-| `TrayIcon` | state icon, menu, Explorer-restart resilience |
-| `SettingsWindow` | WinUI 3 page, navigation, immediate apply |
-| `DiagnosticsWindow` | live timeline, "why not", export |
-| `ToastController` | build summary, actions, dedupe |
-| `HotkeyService` | optional global hotkey, conflict reporting |
-| `SingleInstance` | mutex + activate existing window |
-| `AppHost` | composition root, DI, lifecycle, crash handling |
+| `Beam.Tray.Program` | DPI awareness, log sink, single-instance mutex, construct adapters, recovery, start the monitor, run the WinForms message loop |
+| `TrayService` | `NotifyIcon`, context menu, state text, cursor pinning, startup toggle, balloons deferred while the menu is open |
+| `TrayPresentation` | Pure mapping from session state to menu text/icon (unit tested) |
+| `Beam.Cli.Program` | Install the log sink, construct the real adapters |
+| `CliApp` | All commands (`status`, `devices`, `apply`, `restore`, `dpi`, `nightlight`) against Core ports; testable with `StringWriter` |
+| `CommandLine` | Argument parsing and `CliUsageException` |
 
-## 5.5 Beam.Cli
+Both roots are composition roots, but they have different jobs. The tray runs the long-lived
+presentation loop (monitor + presentation manager + WinForms message loop). The CLI is a
+one-shot diagnostic/control tool: `status` reports the topology, `apply --dry-run` prints
+the plan without touching anything, and `nightlight` reads or writes the real toggle. They
+share the adapters and the Core ports; the CLI never starts the monitor and never runs a
+presentation session.
 
-| Component | Responsibility |
-|---|---|
-| `Program` | parse args, map to pipe requests |
-| `PipeClient` | connect/launch with timeout |
-| `Output` | human text or JSON envelope |
-| `ExitCodes` | stable codes (0/1/2/3/4/5) |
-
-## 5.6 Interfaces (contract sketch)
+## 5.6 Ports (contract sketch)
 
 ```csharp
-interface IDisplayInventory {
-    TopologySnapshot Read(TopologyQuery query);          // active/all
+interface ITopologySource { DisplayTopology Query(); }
+
+interface IDisplayChangeSource {
+    event Action<ConnectionSnapshot?, ConnectionSnapshot>? Changed;
+    void Start();
+    void Stop();
 }
 
 interface IDisplayModeController {
-    IReadOnlyList<DisplayMode> Enumerate(string gdiDeviceName);
-    DisplayMode? GetCurrent(string gdiDeviceName);
-    ApplyResult Test(string gdiDeviceName, DisplayMode mode);
-    ApplyResult Apply(string gdiDeviceName, DisplayMode mode);   // no registry persistence
-    ApplyResult Verify(string gdiDeviceName, DisplayMode mode);
-}
-
-interface IEdidReader {
-    EdidInfo? Read(string devicePath);                   // null = unreadable
-}
-
-interface INightLightController {
-    NightLightState Read();
-    NightLightSnapshot Snapshot();
-    WriteResult Disable(NightLightScope scope);
-    WriteResult Restore(NightLightSnapshot snapshot);
-    bool IsSupported { get; }
+    string? ApplyCloneWith16x9();   // null = success
+    string? Restore();
 }
 
 interface IDpiController {
-    DpiScaleInfo? Read(uint adapterId, uint sourceId);      // -3: min/cur/max relative
-    DpiResult Set(uint adapterId, uint sourceId, int percent); // -4, then verify
-    bool IsSupported { get; }
+    DpiScale? Read(DisplayPath path);
+    bool SetPercentageAndVerify(DisplayPath path, int percent, DpiScaleValue? current = null);
 }
 
-interface IStateJournal {
-    void Begin(SessionRecord record);
-    void MarkApplied(string itemId);
-    void MarkRestored(string itemId);
-    void Complete();
-    SessionRecord? Load();
+interface INightLightController {
+    IReadOnlyList<NightLightSnapshot> SnapshotAll();
+    NightLightWriteResult SetActive(bool active);
+    NightLightWriteResult Restore(IReadOnlyList<NightLightSnapshot> snapshots);
 }
 ```
+
+`IJournalStore` (`Beam.App.Journal`) is the only non-Core port: it is portable file I/O and
+therefore lives next to the code that uses it.
 
 ## 5.7 Data ownership
 
 | Data | Owner | Lifetime |
 |---|---|---|
-| Topology snapshot | `TriggerEngine` | in-memory, per event |
-| Classification | `ConfigStore` | persistent, per device id |
-| Profile | `ConfigStore` | persistent, per device id |
-| Session journal | `JournalStore` | until verified restore |
-| Night Light bytes | `JournalStore` | until verified restore |
-| Timeline | `DiagnosticsLog` | ring buffer + rolling log |
-| Settings | `ConfigStore` | persistent |
+| Topology snapshot | `DisplayMonitor` | in memory, replaced on change |
+| Session state | `SessionManager` | process lifetime |
+| Crash journal | `JournalStore` | from `BeginApply` until a verified restore |
+| Night Light blob bytes | `JournalStore` | same as the journal |
+| Human log | `FileLogSink` | append-only |
+| Detailed log (JSONL) | `FileLogSink` | append-only |
+| Settings | Not implemented yet (Phase 2: `ConfigStore`) | — |
 
 ## 5.8 DPI detail (why it is per source)
 
 ```
 DISPLAYCONFIG_PATH_INFO
   sourceInfo: adapterId, id  <-- DPI belongs here
-  targetInfo: adapterId, id  <-- monitor identity, EDID, connector
+  targetInfo: adapterId, id  <-- monitor identity/EDID, connector
 
 duplicate: 1 source -> N targets   => 1 scale for all
 extend:    N sources -> N targets  => N scales
 ```
 
-`DisplayConfigGetDeviceInfo` with type `-3` (size 32) and
-`DisplayConfigSetDeviceInfo` with type `-4` (size 24) operate on the **source**
-(`header.id = sourceInfo.id`, `header.adapterId = sourceInfo.adapterId`).
+`DisplayConfigGetDeviceInfo` type `-3` (size 32) and `DisplayConfigSetDeviceInfo` type `-4`
+(size 24) operate on the **source** (`header.id = sourceInfo.id`,
+`header.adapterId = sourceInfo.adapterId`).
 
 Ladder: `100, 125, 150, 175, 200, 225, 250, 300, 350, 400, 450, 500` (%).
 `recommended = ladder[abs(minScaleRel)]`; `current = ladder[abs(min) + cur]`.
 
 ## 5.9 Dependency rules
 
-1. `Beam.Core` -> nothing but BCL.
-2. `Beam.Windows` -> `Beam.Core` + Win32/WinRT.
-3. `Beam.App` -> `Beam.Core` + `Beam.Windows` + WinUI.
-4. `Beam.Cli` -> `Beam.Core` (DTOs) only; never `Beam.Windows`.
-5. No cycles. Enforced by project references and an architecture test.
+1. `Beam.Core` → BCL only.
+2. `Beam.App` → `Beam.Core` only (no Windows, no UI, no P/Invoke).
+3. `Beam.Windows` → `Beam.Core` + Win32/WinRT.
+4. `Beam.Tray` → Core, App, Windows.
+5. `Beam.Cli` → Core, App, Windows; never `Beam.Tray`.
+6. No cycles. Enforced by project references and `Beam.Architecture.Tests`.

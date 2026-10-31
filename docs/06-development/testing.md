@@ -1,0 +1,116 @@
+# Testing
+
+Beam's test suite is split along the same lines as the production code. The rule is:
+**test behaviour at the layer that owns it, and fake the platform.**
+
+## Projects
+
+| Project | Targets | What it covers |
+|---|---|---|
+| `tests/Beam.Core.Tests` | `net10.0` | Aspect classification, trigger, topology model, DPI ladder/planner, Night Light codec, startup command, percentiles |
+| `tests/Beam.App.Tests` | `net10.0` | Session state machine, presentation sequencing, journal, file log sink — all through fake ports |
+| `tests/Beam.Windows.Tests` | `net10.0-windows` | 16:9 mode ranking, LUID/rational helpers, DEVMODE construction, display-monitor polling contract |
+| `tests/Beam.Cli.Tests` | `net10.0-windows` | Argument parsing, every command, exit codes, JSON shape |
+| `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping (`TrayPresentation`) |
+| `tests/Beam.Architecture.Tests` | `net10.0` | Project-reference and portability rules from [architecture.md](architecture.md) |
+
+Current totals: **257 tests**. Run them with:
+
+```powershell
+dotnet test Beam.sln -c Release
+```
+
+No test needs a projector, elevated rights, or a real Night Light setting. Tests that
+would touch the display run only against fakes; the Windows interop tests exercise pure
+struct helpers.
+
+## The fake ports
+
+`tests/Beam.App.Tests/Fakes.cs` contains a complete in-memory implementation of every
+port plus `Topologies` builders for the two cases that matter: mirrored-with-mismatch and
+extended. `PresentationHarness` wires a `PresentationManager` to those fakes and exposes
+every call count, so a test can assert the exact sequence:
+
+```csharp
+using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+await h.Manager.ApplyNowAsync();
+
+Assert.Equal(SessionState.Active, h.Session.State);
+Assert.Equal(1, h.NightLight.SetActiveCalls);
+Assert.Equal(1, h.Journal.BeginCalls);
+```
+
+`tests/Beam.Cli.Tests/CliFakes.cs` does the same for the CLI, with `StringWriter` capturing
+stdout/stderr so JSON can be parsed in assertions.
+
+## What is deliberately not unit tested
+
+- **`Beam.Windows` display mutation.** `SetDisplayConfig`, `ChangeDisplaySettingsEx`,
+  Night Light registry writes, and DPI device-info calls need a real graphics stack.
+  They are exercised manually against the hardware matrix below. The adapters are kept
+  thin so the untested surface is small.
+- **`Beam.Tray` WinForms controls.** Creating a `NotifyIcon` needs a message pump and a
+  shell. The logic that can be isolated (state text mapping, cursor pinning) is factored
+  out or verified manually.
+
+`eng/coverage.ps1` reports those two assemblies but does not gate them. Pretending they
+are unit-covered would be worse than saying so.
+
+## Coverage
+
+```powershell
+pwsh eng/coverage.ps1              # run tests + report
+pwsh eng/coverage.ps1 -NoTest      # reuse existing TestResults
+pwsh eng/coverage.ps1 -Enforce     # fail below the gate (used by CI)
+```
+
+The script unions the Cobertura reports from every test project, so a line counts as
+covered if any project exercised it. Current numbers (Release, 2026-11-01):
+
+| Assembly | Lines | Gate |
+|---|---|---|
+| `Beam.Core` | 365 / 400 = 91.3% | ≥ 85% |
+| `Beam.App` | 385 / 423 = 91.0% | ≥ 80% |
+| `Beam.Cli` | 238 / 305 = 78.0% | ≥ 75% |
+| `Beam.Windows` | 94 / 593 = 15.9% | reported only |
+| `Beam.Tray` | 10 / 394 = 2.5% | reported only |
+
+Coverage is a regression alarm, not a target. The sequencing and failure-path tests in
+`Beam.App.Tests` matter more than the percentage.
+
+## Adding a test
+
+1. Put it in the project that owns the behaviour, not in a catch-all project.
+2. Prefer a fake port over a real OS call. If you need a new platform capability, add a
+   port and a fake first.
+3. Assert observable effects: state, call counts, files written, process output.
+4. Keep tests deterministic. Do not sleep when a `TaskCompletionSource` or an awaitable
+   `PendingTask` can signal completion; the display monitor tests are the exception
+   because polling is the behaviour under test.
+
+## Hardware matrix (manual)
+
+Run before a release; record results in the PR or release checklist.
+
+| ID | Setup | Checks |
+|---|---|---|
+| H1 | Laptop + 1080p projector (HDMI) | Detect, apply, restore on unplug |
+| H2 | Laptop + 720p projector | Mode fallback |
+| H3 | USB-C dock + HDMI | Enumeration timing, single apply |
+| H4 | HDMI KVM | Bounce/flap handling |
+| H5 | AVR passthrough | Does not misclassify as internal |
+| H6 | 4K projector/TV | 16:9 at 4K, DPI choice |
+| H7 | Sleep/wake with projector attached | Re-apply without churn |
+| H8 | Kill Beam mid-apply | Next launch restores |
+| H9 | Pause while presenting, then unplug | Paused session ignores changes; resume restores |
+| H10 | 200% DPI + tray menu | Menu responsive, cursor never sticks |
+
+The sticky-cursor regression has a dedicated proof in
+`spikes/S7.BugRepro` (real Win32 mouse input, deterministic A/B against the old and fixed
+builds). See [debugging.md](debugging.md) for how to run it.
+
+## CI
+
+`.github/workflows/ci.yml` builds and tests Debug and Release, verifies formatting with
+`dotnet format`, runs the coverage gate, checks Markdown links, and uploads TRX +
+Cobertura artifacts. See [releasing.md](releasing.md).

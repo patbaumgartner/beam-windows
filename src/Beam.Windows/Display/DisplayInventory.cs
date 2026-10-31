@@ -1,13 +1,15 @@
 using Beam.Core.Display;
+using Beam.Core.Ports;
 using static Beam.Windows.Display.DisplayNative;
 
 namespace Beam.Windows.Display;
 
 /// <summary>Reads the current display configuration and the modes each display supports.</summary>
 /// <remarks>
-/// Read-only. Nothing in this class changes the system.
+/// Read-only. Nothing in this class changes the system. Implements
+/// <see cref="ITopologySource"/> so the application layer can be tested with a fake.
 /// </remarks>
-public sealed class DisplayInventory
+public sealed class DisplayInventory : ITopologySource
 {
     /// <summary>Queries the current display paths, including inactive ones.</summary>
     public DisplayTopology Query()
@@ -21,7 +23,8 @@ public sealed class DisplayInventory
     /// useful for "what was plugged in before").
     /// </param>
     public DisplayTopology Query(bool includeInactive)
-    {        uint flags = QdcAllPaths | QdcVirtualModeAware;
+    {
+        uint flags = QdcAllPaths | QdcVirtualModeAware;
         if (!includeInactive)
         {
             flags = QdcOnlyActivePaths | QdcVirtualModeAware;

@@ -11,10 +11,10 @@ public class PercentileTests
     }
 
     [Theory]
-    [InlineData(0.0,   10)]   // min
-    [InlineData(1.0,  100)]   // max
-    [InlineData(0.5,   55)]   // median
-    [InlineData(0.95,  100)]  // p95 of 10 samples = 10th sample (last)
+    [InlineData(0.0, 10)]   // min
+    [InlineData(1.0, 100)]   // max
+    [InlineData(0.5, 55)]   // median
+    [InlineData(0.95, 100)]  // p95 of 10 samples = 10th sample (last)
     public void Compute_KnownSamples(double p, double expected)
     {
         var samples = new double[] { 10, 20, 30, 40, 50, 55, 60, 70, 80, 90, 100 };
