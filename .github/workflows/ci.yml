@@ -1,0 +1,153 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Keep permissions read-only for the default token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Restore
+        run: dotnet restore Beam.sln
+
+      - name: Build
+        run: dotnet build Beam.sln --configuration ${{ matrix.configuration }} --no-restore
+
+      - name: Test
+        run: dotnet test Beam.sln --configuration ${{ matrix.configuration }} --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always()
+        with:
+          name: test-results-${{ matrix.configuration }}
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  snapshot:
+    name: Snapshot installer (main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Publish tray
+        run: dotnet publish src/Beam.Tray -c Release
+
+      - name: Publish CLI
+        run: dotnet publish src/Beam.Cli -c Release
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version 2.0
+
+          # Download Inno Setup directly — choco install innosetup is flaky on the runner.
+          $innoUrl  = 'https://files.jrsoftware.org/is/6/innosetup-6.2.2.exe'
+          $tarFile  = "$env:TEMP\innosetup-6.2.2.exe"
+          $innoDir  = "$env:TEMP\InnoSetup622"
+          $isccPath = "$innoDir\ISCC.exe"
+
+          if (-not (Test-Path $isccPath)) {
+            Write-Host "Downloading Inno Setup…"
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            Invoke-WebRequest -Uri $innoUrl -OutFile $tarFile -UseBasicParsing
+            Write-Host "Extracting Inno Setup…"
+            New-Item -ItemType Directory -Force -Path $innoDir | Out-Null
+            Start-Process -FilePath $tarFile -ArgumentList "/VERYSILENT","/SUPPRESSMSGBOXES","/NORESTART","/DIR=`"$innoDir`"" -Wait -NoNewWindow
+          }
+
+          Write-Host "ISCC: $isccPath"
+          & "$isccPath" /DOutputDir="$PWD\nightly" installer\Beam.iss
+
+      - name: List installer output
+        shell: pwsh
+        run: Get-ChildItem nightly | Select-Object Name, Length
+
+      - name: Upload installer
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: beam-snapshot-installer
+          path: nightly/BeamSetup-*.exe
+          if-no-files-found: error
+
+  # ── Snapshot GitHub Release ──────────────────────────────────────────────────
+  # Every push to main publishes an updated "latest snapshot" release so the
+  # most-recent installer is always one click away from the Releases page.
+  snapshot-release:
+    name: Snapshot GitHub Release
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: snapshot
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download installer
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: beam-snapshot-installer
+          path: installer
+
+      - name: List downloaded artifact
+        run: ls -lh installer/
+
+      - name: Locate installer
+        id: loc
+        run: |
+          f=$(ls installer/BeamSetup-*.exe | head -n 1)
+          echo "path=$f" >> "$GITHUB_OUTPUT"
+          echo "name=$(basename "$f")" >> "$GITHUB_OUTPUT"
+
+      - name: Create/update snapshot release
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          tag_name: snapshot
+          name: Beam snapshot (latest main build)
+          body: |
+            Automated snapshot installer built from the latest `main` branch push.
+
+            Install it to get the latest fixes while a stable release is being prepared.
+          files: ${{ steps.loc.outputs.path }}
+          target_commitish: ${{ github.sha }}
+          recreate: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
