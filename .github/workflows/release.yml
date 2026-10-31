@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build release installer
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { 'v0.1.0' }
+          $v = $tag.TrimStart('v')
+          Write-Output "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Publish tray
+        run: dotnet publish src/Beam.Tray -c Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Publish CLI
+        run: dotnet publish src/Beam.Cli -c Release -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+          $iscc = Get-ChildItem "$env:PROGRAMFILES(x86)\Inno Setup*\ISCC.exe" | Select-Object -First 1 -ExpandProperty FullName
+          & $iscc "/DMyAppVersion=${{ steps.version.outputs.version }}" /DOutputDir="$PWD\nightly" installer\Beam.iss
+
+      - name: Locate installer
+        id: loc
+        shell: pwsh
+        run: |
+          $f = Get-ChildItem nightly\BeamSetup-*.exe | Select-Object -First 1
+          Write-Output "path=$($f.FullName)" >> $env:GITHUB_OUTPUT
+          Write-Output "name=$($f.Name)" >> $env:GITHUB_OUTPUT
+
+      - name: Create/update GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          files: ${{ steps.loc.outputs.path }}
+          generate_release_notes: true

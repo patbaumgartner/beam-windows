@@ -1,0 +1,93 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+# Keep permissions read-only for the default token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    name: Build & test
+    runs-on: windows-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [Debug, Release]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: '**/*.csproj'
+
+      - name: Restore
+        run: dotnet restore Beam.sln
+
+      - name: Build
+        run: dotnet build Beam.sln --configuration ${{ matrix.configuration }} --no-restore
+
+      - name: Test
+        run: dotnet test Beam.sln --configuration ${{ matrix.configuration }} --no-build --logger "trx;LogFileName=results.trx"
+
+      - name: Upload test results
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.configuration }}
+          path: '**/TestResults/*.trx'
+          if-no-files-found: ignore
+
+  snapshot:
+    name: Snapshot installer (main)
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-and-test
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+
+      - name: Publish tray
+        run: dotnet publish src/Beam.Tray -c Release
+
+      - name: Publish CLI
+        run: dotnet publish src/Beam.Cli -c Release
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version 2.0
+          choco install innosetup --no-progress -y
+          & "$env:PROGRAMFILES(x86)\Inno Setup 6\ISCC.exe" /DOutputDir="$PWD\nightly" installer\Beam.iss
+
+      - name: List installer output
+        shell: pwsh
+        run: Get-ChildItem nightly | Select-Object Name, Length
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: beam-snapshot-installer
+          path: nightly/BeamSetup-*.exe
+          if-no-files-found: error

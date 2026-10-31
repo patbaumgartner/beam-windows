@@ -1,1 +1,166 @@
-# beam-windows
+# Beam — Projector Mode for Windows
+
+> Plug in. Look right. Every time.
+
+[![CI](https://github.com/patbaumgartner/beam-windows/actions/workflows/ci.yml/badge.svg)](https://github.com/patbaumgartner/beam-windows/actions/workflows/ci.yml)
+[![Release](https://github.com/patbaumgartner/beam-windows/actions/workflows/release.yml/badge.svg)](https://github.com/patbaumgartner/beam-windows/actions/workflows/release.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![.NET](https://img.shields.io/badge/.NET-10-blueviolet)](global.json)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+Beam is a small, per-user Windows tray app that gives you a **presentation state** the
+moment you plug in a projector: it removes the black bars, applies a readable DPI, and
+temporarily turns **Night Light** off — then restores every setting **exactly** when the
+projector disconnects.
+
+```text
+┌──────────────────────────┐   ┌──────────────────────────┐
+│  Plug in projector       │   │  Disconnect              │
+├──────────────────────────┤   ├──────────────────────────┤
+│  duplicate mode          │   │  restore original        │
+│  16:9 shared source      │   │  topology + resolution   │
+│  (no more black bars)    │   │  restore DPI             │
+│  readable DPI            │──▶│  restore Night Light     │
+│  Night Light OFF         │   │  (semantic, verified)    │
+└──────────────────────────┘   └──────────────────────────┘
+```
+
+## Why
+
+Windows' "Duplicate" mode mirrors your laptop's *own* aspect ratio. If your panel is
+16:10 and the projector is 16:9, you get black bars and tiny text every single time you
+present. No built-in feature fixes this, and no mainstream Windows utility does the whole
+job — detect → fix → roll back. That gap is why Beam exists (full rationale in
+[docs/README.md](docs/README.md)).
+
+## Features
+
+- 🖥️ **Automatic trigger** — watches displays, and the moment an external 16:9 panel is
+  mirrored with an aspect mismatch, Beam goes to work.
+- 📐 **Best-fit 16:9** — picks the highest supported 16:9 mode the shared source actually
+  supports (60 Hz preferred, 30 Hz fallback) instead of hard-coding a resolution.
+- 🔍 **Readable DPI** — scales the shared source to a sane value via the same undocumented
+  API the Settings app uses.
+- 🌙 **Night Light awareness** — temporarily disables the *real* Windows Night Light
+  (CloudStore state, verified by re-read) and restores it semantically on disconnect.
+- ↩️ **Exact rollback** — restores topology, sourced resolutions, and Night Light when the
+  display goes away. Safe even if Beam is killed mid-fix.
+- 🖱️ **Responsive tray menu** — status, **Launch at sign-in**, Pause/Resume, *Apply
+  projector mode now*, *Restore display*.
+- 🧰 **CLI** — `beam status`, `beam devices`, `beam apply`, `beam restore`,
+  `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
+  power users.
+- 🔒 **No admin** — per-user install and runtime; never elevates.
+- 🧪 **Tested** — 100+ unit tests on the decision logic; each capstone validated against
+  real displays (see [docs/05-delivery/spike-results.md](docs/05-delivery/spike-results.md)).
+
+## Quick start
+
+### Installer (recommended)
+
+Download the latest installer from the
+[Releases](https://github.com/patbaumgartner/beam-windows/releases) page and run it.
+Tick **Launch Beam at sign-in** when prompted. That's it — Beam lives in the tray.
+
+### Build from source
+
+[.NET 10 SDK](https://dot.net) is required (version pinned in `global.json`).
+
+```powershell
+git clone https://github.com/patbaumgartner/beam-windows.git
+cd beam-windows
+dotnet build Beam.sln
+dotnet test Beam.sln
+```
+
+## Usage
+
+### Tray
+
+| Menu item | What it does |
+|---|---|
+| **Status** | Current session state (read-only) |
+| **Launch at sign-in** | Add/remove Beam from Windows startup (HKCU Run key) |
+| **Pause / Resume** | Stop / restart reacting to display changes |
+| **Apply projector mode now** | Manually run the fix |
+| **Restore display** | Manually roll back to the previous configuration |
+| **Exit Beam** | Quit |
+
+### CLI
+
+```text
+beam status [--json]                 Current topology + what Beam would do
+beam devices [--json]                Every display path, active and inactive
+beam apply [--dry-run] [--json]      Run the fix (or print the plan only)
+beam restore [--nightlight] [--json]  Roll back (optionally re-enable Night Light)
+beam dpi read|set <percent> [--json]
+beam nightlight <on|off> [--json]
+```
+
+Exit codes: `0` success · `1` failure · `2` bad arguments · `3` no projector.
+
+```powershell
+beam status --json
+beam apply --dry-run
+beam restore
+```
+
+## How it works
+
+1. **Detection** — `DisplayInventory` queries `QueryDisplayConfig`. Duplicate mode is
+   detected from `currentTopologyId` (`DISPLAYCONFIG_TOPOLOGY_CLONE`), the canonical signal
+   on Windows 11 (see [UC-07](docs/02-use-cases/UC-07-restore-on-disconnect.md)).
+2. **Fix** — `DisplayModeController` enters clone mode, then scans
+   `EnumDisplaySettingsEx` for the best supported 16:9 mode. `DpiController` reads and
+   sets the source's DPI scale (`DisplayConfigGetDeviceInfo(-3/-4)`).
+3. **Night Light** — `NightLightController` writes the user's CloudStore state blob for the
+   real Settings toggle, and re-reads it to verify.
+4. **Rollback** — on disconnect (or manual restore), `SetDisplayConfig` restores the
+   extended topology and each captured DEVMODE; Night Light is restored semantically.
+
+The engine is deliberately split: **`Beam.Core`** holds the pure, testable logic
+(aspect matching, DPI planning) with **no Windows dependency**, so it can be donated to
+PowerToys as-is (see [ADR-0001](docs/04-adr/ADR-0001-upstream-path.md) and
+[docs/05-delivery/upstream-plan.md](docs/05-delivery/upstream-plan.md)).
+
+## Project layout
+
+| Path | Purpose |
+|---|---|
+| [`src/Beam.Core`](src/Beam.Core) | Decision logic — pure, testable, no Windows |
+| [`src/Beam.Windows`](src/Beam.Windows) | Thin P/Invoke layer over the display config APIs |
+| [`src/Beam.Tray`](src/Beam.Tray) | The WinForms tray app (`Beam.exe`) |
+| [`src/Beam.Cli`](src/Beam.Cli) | Scriptable CLI front end (`beam`) |
+| [`spikes/`](spikes) | Numbered proof-of-concept spikes (S1–S6) |
+| [`tests/`](tests) | xUnit test suites (93 core + 16 tray) |
+| [`docs/`](docs) | Vision, research, use cases, arc42, ADRs, delivery notes |
+
+## Building the installer locally
+
+Requires [Inno Setup 6](https://jrsoftware.org/isinfo.php) (or `winget install
+JRSoftware.InnoSetup`).
+
+```powershell
+.\installer\build.ps1                 # publish + compile to .\artifacts
+.\installer\build.ps1 -Version 0.2.0  # tag a different version
+```
+
+CI builds a snapshot installer on every push to `main` and a release installer for every
+`v*` tag — no local tooling needed.
+
+## Roadmap & status
+
+Phase 0–5 milestones are tracked in [docs/05-delivery/roadmap.md](docs/05-delivery/roadmap.md).
+Current status: **tray MVP shipped**, CLI shipped, installer + CI shipping. The long-term
+goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). This project follows the
+[Contributor Covenant](CODE_OF_CONDUCT.md); security issues go through
+[SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE) © 2026 patbaumgartner — MIT was chosen for friction-free donation to
+PowerToys (see [ADR-0012](docs/04-adr/ADR-0012-license.md)).
