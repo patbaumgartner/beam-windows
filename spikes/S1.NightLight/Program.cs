@@ -1,4 +1,4 @@
-﻿using System.Text.Json;
+using System.Text.Json;
 using Beam.Core.NightLight;
 using Beam.Windows.NightLight;
 

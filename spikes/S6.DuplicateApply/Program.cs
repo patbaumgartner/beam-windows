@@ -89,7 +89,7 @@ static int ApplyClone(DisplayInventory inventory)
     Print(inventory.Query());
 
     // 1) Enter duplicate mode with OS-picked topology.
-    int err = SetDisplayConfig(0, null, 0, null, SdcTopologyClone | SdcApply);    if (err != ErrorSuccess)
+    int err = SetDisplayConfig(0, null, 0, null, SdcTopologyClone | SdcApply); if (err != ErrorSuccess)
     {
         Console.Error.WriteLine($"SetDisplayConfig(TOPOLOGY_CLONE) failed: error {err}");
         return 1;

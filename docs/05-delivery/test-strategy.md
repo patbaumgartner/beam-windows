@@ -1,132 +1,178 @@
 # Test strategy
 
+This chapter is the delivery-level view: what is automated, what is verified by hand, and
+what "done" means before a release. The day-to-day mechanics (how to run a single test, how
+the fakes are wired, how coverage is collected) live in
+[docs/06-development/testing.md](../06-development/testing.md).
+
 ## 1. Principles
 
-- The domain is pure and tested without Windows.
-- Every native adapter has a fake with fault injection.
-- Anything that can blank a screen is tested by simulation first, hardware second.
-- Golden files for binary formats (Night Light blobs) and mode lists.
-- No test requires a projector in CI.
+1. **Test behaviour where it is owned.** Pure decisions in `Beam.Core`, sequencing in
+   `Beam.App`, adapters in `Beam.Windows`.
+2. **Fake the platform, not the logic.** The application layer runs against in-memory
+   ports; no test needs a projector, a registry write, or elevation.
+3. **Anything that can blank a screen is exercised twice.** Simulation first, hardware
+   second. A green unit suite is not permission to skip the hardware matrix.
+4. **Do not claim coverage you do not have.** `Beam.Windows` and `Beam.Tray` are reported
+   but not gated; pretending they are unit-covered would be worse than saying so.
+5. **A flaky test is a bug.** Time-sensitive tests use polling helpers with timeouts and
+   deterministic signals, never bare `Thread.Sleep` as a synchronisation primitive.
 
-## 2. Test levels
+## 2. Automated levels
 
-### 2.1 Unit (fast, CI, no OS)
+### 2.1 Unit — `net10.0`, fast, no OS
 
-| Area | Cases |
+| Suite | Typical cases |
 |---|---|
-| `ModePlanner` | 16:9 predicate, tolerance, policy x mode-list matrix, refresh preference, no-candidate |
-| `ScalePlanner` | sane-range rule, trap detection, standard scale snapping |
-| `Classifier` | score table, thresholds, overrides, missing EDID, AVR, virtual |
-| `NightLightCodec` | parse/serialize round-trip, 38/39-byte, per-device, manual/schedule, unknown bytes preserved, malformed input rejected |
-| `RestorePlanner` | reverse order, "still ours", skip on user change, missing device |
-| `SessionManager` | state machine transitions, failure paths, safe mode |
-| `JournalStore` | atomic write, corruption, phase resume |
-| `ProfileStore` | schema version, migration, merge, validation |
-| CLI | args, exit codes, JSON schema |
+| `Beam.Core.Tests` | Aspect classification and tolerance, trigger truth table, topology model (mirror fallback when the topology id is unreadable), DPI ladder/planner traps, Night Light blob round-trip and malformed input, `StartupCommand` matching, percentile maths |
+| `Beam.App.Tests` | Session transitions, apply/restore ordering, journal before mutation, recovery on launch, pause semantics, failure paths (`ApplyNow` override), `FileLogSink` formats and no-throw guarantee |
+| `Beam.Architecture.Tests` | Project-reference rules; no WinForms/P/Invoke/`Microsoft.Win32` in portable layers; composition roots have no inbound references |
 
-### 2.2 Simulation (CI)
+### 2.2 Adapter contracts — `net10.0-windows`, no mutation
 
-`SimulationHost` replays an event script against fakes:
+`Beam.Windows.Tests` covers the parts of the adapter layer that are pure or externally
+observable without changing a display:
 
+- best 16:9 mode ranking and refresh preference,
+- `LUID` formatting/parsing and the `DISPLAYCONFIG_RATIONAL` helper,
+- `DEVMODE` construction,
+- `DisplayMonitor` polling contract: one event per real change, no re-raise on identical
+  polls, capture failure does not stop the loop, `Stop`/`Dispose` are idempotent and
+  terminal.
+
+### 2.3 CLI — `net10.0-windows`, no process
+
+`Beam.Cli.Tests` drives `CliApp` with fake ports and `StringWriter`, so every command,
+usage error, exit code and JSON shape is asserted without spawning a process or touching
+the real display:
+
+- `status`, `devices` (human + `--json`),
+- `apply` (plan, `--dry-run`, rejection),
+- `restore` (with/without Night Light),
+- `dpi read` / `dpi set` (including out-of-range values),
+- `nightlight on|off`,
+- unknown command, missing arguments, help.
+
+### 2.4 Tray text — `net10.0-windows`
+
+`Beam.Tray.Tests` covers `TrayPresentation`, the pure mapping from session state to menu
+text and icon. WinForms control creation needs a message pump and the shell, so the
+`NotifyIcon` itself is verified by hand (see §4).
+
+### 2.5 Simulation through fakes
+
+`tests/Beam.App.Tests/Fakes.cs` provides a complete in-memory implementation of every port
+plus `PresentationHarness`, which exposes call counts and ordering. Scenarios covered
+include:
+
+- happy path: plug in → apply → active → unplug → restore → idle,
+- no trigger when extended, when aspects match, or when only the internal panel is present,
+- user pause (automatic trigger ignored) and resume,
+- `ApplyNow` as a deliberate manual override,
+- journal write failure and recovery on the next launch,
+- Night Light write/snapshot failure,
+- DPI read/write failure,
+- disconnect arriving while a fix is still running.
+
+### 2.6 What is not simulated yet
+
+The original plan listed property-based tests and fault injection for every native call.
+Neither is implemented. The fakes already support failure injection where it matters (the
+sequencing tests); a property-based suite for the Night Light codec is a reasonable
+follow-up, not a current claim.
+
+## 3. Coverage
+
+```powershell
+pwsh eng/coverage.ps1              # run tests + report
+pwsh eng/coverage.ps1 -NoTest      # reuse existing TestResults
+pwsh eng/coverage.ps1 -Enforce     # fail below the gate (used by CI)
 ```
-t=0    device-added EPSON (HDMI, 1920x1080)
-t=1500 inventory-changed
-t=1520 classify -> projector
-t=1530 modes -> [...]
-...
-t=9000 device-removed
-```
 
-Scenarios: happy path, no 16:9 mode, clone, dock bounce, KVM, AVR, flapping, crash at
-each phase, Night Light failure, DPI unavailable, user change mid-session, two
-projectors, RDP.
+The script unions the Cobertura reports from every test project, so a line counts as
+covered if any project exercised it.
 
-### 2.3 Integration (CI, read-only)
+| Assembly | Current (2026-11-01) | Gate |
+|---|---|---|
+| `Beam.Core` | 365 / 400 = 91.3% | ≥ 85% |
+| `Beam.App` | 385 / 423 = 91.0% | ≥ 80% |
+| `Beam.Cli` | 238 / 305 = 78.0% | ≥ 75% |
+| `Beam.Windows` | 94 / 593 = 15.9% | reported only |
+| `Beam.Tray` | 10 / 394 = 2.5% | reported only |
+| Overall | 1092 / 2115 = 51.6% | — |
 
-- Real `QueryDisplayConfig` on the runner (enumerate only, no mutation).
-- Real EDID registry read for the runner's display.
-- Real Night Light **read** and parse (no write).
-- Named pipe round-trip.
-- Config file atomic write.
+The gate is a regression alarm, not a target. A change that lowers Core or App coverage by
+more than a rounding error needs a justification in the pull request.
 
-### 2.4 Hardware-in-the-loop (manual/scripted)
+## 4. Manual verification
+
+### 4.1 Hardware matrix
+
+Run before a release and record the result in the release notes or pull request.
 
 | ID | Setup | Checks |
 |---|---|---|
-| H1 | Intel iGPU laptop + 1080p projector (HDMI) | extend, clone, second-only |
-| H2 | Same + 720p projector | policy fallbacks |
-| H3 | NVIDIA desktop + 1080p display | driver differences |
-| H4 | USB-C dock + HDMI | enumeration timing, single apply |
-| H5 | HDMI KVM | bounce handling |
-| H6 | AVR passthrough | classification, ask flow |
-| H7 | Two projectors | independent plans |
-| H8 | 4K projector / TV | scaling, 16:9 at 4K |
-| H9 | Sleep/wake with projector attached | re-apply, no churn |
-| H10 | HDR on/off | Night Light behaviour |
+| H1 | Laptop + 1080p projector (HDMI) | Detect, apply 16:9, readable DPI, restore on unplug |
+| H2 | Laptop + 720p projector | Mode fallback, no unsupported mode applied |
+| H3 | USB-C dock + HDMI | Enumeration timing, exactly one apply |
+| H4 | HDMI KVM | Bounce/flap handling, no restore loop |
+| H5 | AVR passthrough | Not misclassified as an internal panel |
+| H6 | 4K projector/TV | 16:9 at 4K, sensible DPI choice |
+| H7 | Sleep/wake with projector attached | Re-apply without churn |
+| H8 | Kill Beam mid-apply | Next launch restores before monitoring starts |
+| H9 | Pause while presenting, then unplug | Paused session ignores changes; resume restores |
+| H10 | 200% DPI + tray menu | Menu responds, cursor never sticks |
 
-### 2.5 Fault injection
+### 4.2 Tray interaction checks
 
-Wrap native adapters to:
-- fail the Nth call,
-- return a success without changing state (silent failure),
-- delay 6 s (timeout path),
-- return `DISP_CHANGE_BADMODE`, `DISP_CHANGE_FAILED`, `DISP_CHANGE_BADPARAM`,
-- corrupt the Night Light blob,
-- make the journal path read-only / full.
+The tray is manual because it needs Explorer, the notification area and real mouse input:
 
-Assertions: no unsupported mode applied; journal never lost; UI responsive; safe mode
-after 2 failures; end state always enumerated.
+1. Launch from a terminal: icon appears, startup balloon is correct.
+2. Right-click the icon: menu opens immediately; hover every item; the cursor stays an
+   arrow. Repeat ten times, including while a session change is in flight.
+3. Click **Launch at sign-in** on and off: the installer's `--hidden` value is recognised,
+   and a confirmation or warning balloon appears.
+4. Click **Pause Beam** / **Resume Beam**: the label and tooltip match the state.
+5. **Apply projector mode now** with no projector attached: the session fails gracefully
+   and the CLI still reports a usable state.
+6. **Restore display** while idle: no error, no display flash.
+7. **Exit Beam**, relaunch: single instance, no duplicate icons or monitor loops.
 
-### 2.6 Property-based
+### 4.3 Sticky-cursor regression proof
 
-- For random mode lists and random failures, the final mode is always a member of the
-  original list.
-- Night Light codec: parse -> serialize -> parse is semantically idempotent.
-- Restore: applying then restoring any plan returns the original snapshot.
+`spikes/S7.BugRepro` reproduces the 2026-10-31 bug with a real WinForms message loop and
+the shell's context-menu path. It reports a suspected stall when the UI pulse stops while
+the menu is open. Run it against the old and new builds; see
+[debugging.md](../06-development/debugging.md#reproducing-the-sticky-cursor-bug) for the
+exact commands and the A/B results.
 
-## 3. Test data
+## 5. CI pipeline
 
-| Data | Source |
-|---|---|
-| Night Light blobs | captured from real machines (on/off, manual/schedule, per-device) |
-| EDID corpus | collected from projectors/TVs/monitors/AVRs, anonymized |
-| Mode lists | captured per display model |
-| Event traces | instrumented plug/unplug sessions |
+`.github/workflows/ci.yml`:
 
-Store in `tests/data/` with a README and no PII.
+1. Restore, then `dotnet format --verify-no-changes` (Release leg).
+2. Build Debug and Release; warnings are errors.
+3. `dotnet test --collect:"XPlat Code Coverage"` for both configurations.
+4. Coverage gate on the Release leg (`eng/coverage.ps1 -NoTest -Enforce`).
+5. Markdown link check (`eng/check-links.ps1`).
+6. Upload TRX and Cobertura artifacts.
+7. On `main`: build a snapshot installer and publish it to the `snapshot` release.
 
-## 4. CI pipeline
+No hardware is attached to CI. Display mutation, Night Light writes and tray interaction
+are manual by design.
 
-1. Build (warnings as errors).
-2. Unit tests.
-3. Simulation tests.
-4. Architecture tests (no `Beam.Windows` reference from `Beam.Core`; no P/Invoke in core).
-5. Read-only integration tests on a Windows runner.
-6. Analyzer/StyleCop.
-7. Package (on tags).
+## 6. Release checklist
 
-No hardware tests in CI. Hardware results are recorded in `tests/hardware-results.md`.
+Use this in addition to the hardware matrix:
 
-## 5. Manual release checklist
-
-- [ ] Fresh install on a clean VM (no .NET preinstalled assumptions).
-- [ ] Plug/unplug 20x with a real projector.
-- [ ] Kill the process during apply; restart; verify restore.
-- [ ] Disable feature while projecting; verify restore.
-- [ ] Uninstall; verify startup task removed and no leftovers.
-- [ ] Accessibility Insights pass on settings and diagnostics.
-- [ ] High contrast + 200% DPI + RTL layout.
-- [ ] Battery: 1 h idle CPU/memory measurement.
-- [ ] No network calls (Fiddler/Resource Monitor).
-- [ ] Event log clean (no repeated errors).
-
-## 6. Coverage targets
-
-| Area | Target |
-|---|---|
-| `Beam.Core` | >= 90% line, >= 85% branch |
-| `Beam.Windows` adapters | >= 70% with fakes |
-| UI | smoke + key flows |
-| Overall | >= 80% |
-
-Coverage is a guide, not a goal; the property and fault-injection tests matter more.
+- [ ] `dotnet test Beam.sln -c Release` — all tests pass.
+- [ ] `pwsh eng/coverage.ps1 -NoTest -Enforce` — gates pass.
+- [ ] `dotnet format Beam.sln --verify-no-changes` — clean.
+- [ ] `pwsh eng/check-links.ps1` — all relative links resolve.
+- [ ] Fresh install on a clean Windows 11 VM; no developer SDK assumptions.
+- [ ] Uninstall removes the `Run` entry and leaves no `Program Files` residue.
+- [ ] Plug/unplug 20× with a real projector; no stuck state, no duplicate applies.
+- [ ] Kill the process during apply; restart; verify the journal restores the display.
+- [ ] Verify the tray at 100%, 150% and 200% DPI, light and dark taskbar.
+- [ ] Check `%LOCALAPPDATA%\Beam\beam.log` and `beam-detailed.jsonl` for unexpected errors.
+- [ ] Confirm no network calls (Resource Monitor or Fiddler).

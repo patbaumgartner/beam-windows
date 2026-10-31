@@ -1,4 +1,4 @@
-﻿using Beam.Core.Display;
+using Beam.Core.Display;
 using Beam.Windows.Display;
 using static Beam.Windows.Display.DisplayNative;
 

@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <LangVersion>12</LangVersion>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <!-- Beam.App is the UI-free application layer. It must never reference
+       Beam.Windows, Beam.Tray, WinForms, or any P/Invoke. -->
+  <ItemGroup>
+    <ProjectReference Include="..\Beam.Core\Beam.Core.csproj" />
+  </ItemGroup>
+
+</Project>

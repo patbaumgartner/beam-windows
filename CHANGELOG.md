@@ -9,6 +9,20 @@ Current version is **0.1.0** (per `installer/build.ps1` default).
 ## [Unreleased]
 
 ### Fixed
+- **The context menu no longer looks hung.** Opening the tray menu a second time could leave it
+  wearing the shell's busy cursor: WinForms registers its window classes with a null class
+  cursor, so once a wait cursor latched (transient UI-thread stall, shell contention) nothing
+  cleared it while the pointer was over the menu — the app looked frozen even though its message
+  loop was answering in ~1 ms. The drop-down now pins the arrow cursor when it opens and
+  re-asserts it for as long as it is displayed.
+- **Opening the menu no longer reads the registry on the UI thread.** `RefreshMenuState` called
+  `IsStartupEnabled()` inline from `ContextMenuStrip.Opening`, so a slow hive read (profile load,
+  AV filter, concurrent writer) stalled the menu while it was being shown. The menu now uses a
+  cached value that is refreshed on the thread pool and published back to the UI thread; an
+  in-flight read is discarded if the user toggles the setting meanwhile.
+- **State-change balloons no longer fire while the menu is open.** Tooltip and balloon updates
+  driven by background `StateChanged` events are deferred until the menu closes, so the tray no
+  longer re-enters `Shell_NotifyIcon` from inside the drop-down's modal message loop.
 - **Launch at sign-in now round-trips with the installer.** `IsStartupEnabled` compared the
   HKCU `Run` value to the bare `"…\Beam.exe"` form, but the installer writes
   `"…\Beam.exe" --hidden` — so after an installer install the tray checkbox showed
