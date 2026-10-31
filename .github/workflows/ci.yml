@@ -67,6 +67,7 @@ jobs:
         with:
           global-json-file: global.json
           cache: true
+          cache-dependency-path: '**/*.csproj'
 
       - name: Publish tray
         run: dotnet publish src/Beam.Tray -c Release

@@ -32,6 +32,7 @@ jobs:
         with:
           global-json-file: global.json
           cache: true
+          cache-dependency-path: '**/*.csproj'
 
       - name: Resolve version
         id: version
