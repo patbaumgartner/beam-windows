@@ -83,7 +83,7 @@ public sealed class PresentationManager : IDisposable
             ("hasMismatch", topology.HasMirrorAspectMismatch.ToString()),
             ("externalCount", topology.ExternalPaths.Count),
             ("totalPaths", topology.ActivePaths.Count),
-            ("topologyId", topology.TopologyId),
+            ("topologyId", topology.CurrentTopologyId),
             ("topologyJson", topology.ToString()),
             ("evaluationMs", sw.ElapsedMilliseconds.ToString()));
 
@@ -135,10 +135,10 @@ public sealed class PresentationManager : IDisposable
             var topologyBefore = new DisplayInventory().Query();
             AppLog.Info("Topology before mode change", "Fix",
                 ("step", "displayMode"),
-                ("topologyId", topologyBefore.TopologyId),
+                ("topologyId", topologyBefore.CurrentTopologyId),
                 ("isMirrored", topologyBefore.IsMirrored.ToString()),
                 ("activePaths", topologyBefore.ActivePaths.Count),
-                ("mirroredSources", topologyBefore.MirrorSourceCount),
+                ("mirroredSources", topologyBefore.ActiveCloneGroups.Count),
                 ("topologyDetail", topologyBefore.ToString()));
 
             string? modeError = _mode.ApplyCloneWith16x9();
@@ -146,7 +146,7 @@ public sealed class PresentationManager : IDisposable
             var topologyAfter = new DisplayInventory().Query();
             AppLog.Info("Topology after mode change", "Fix",
                 ("step", "displayMode"),
-                ("topologyId", topologyAfter.TopologyId),
+                ("topologyId", topologyAfter.CurrentTopologyId),
                 ("isMirrored", topologyAfter.IsMirrored.ToString()),
                 ("activePaths", topologyAfter.ActivePaths.Count),
                 ("topologyDetail", topologyAfter.ToString()));
@@ -284,7 +284,7 @@ public sealed class PresentationManager : IDisposable
             var topologyBefore = new DisplayInventory().Query();
             AppLog.Info("Topology before restore", "Restore",
                 ("step", "displayMode"),
-                ("topologyId", topologyBefore.TopologyId),
+                ("topologyId", topologyBefore.CurrentTopologyId),
                 ("isMirrored", topologyBefore.IsMirrored.ToString()),
                 ("activePaths", topologyBefore.ActivePaths.Count),
                 ("topologyDetail", topologyBefore.ToString()));
@@ -294,7 +294,7 @@ public sealed class PresentationManager : IDisposable
             var topologyAfter = new DisplayInventory().Query();
             AppLog.Info("Topology after restore", "Restore",
                 ("step", "displayMode"),
-                ("topologyId", topologyAfter.TopologyId),
+                ("topologyId", topologyAfter.CurrentTopologyId),
                 ("isMirrored", topologyAfter.IsMirrored.ToString()),
                 ("activePaths", topologyAfter.ActivePaths.Count),
                 ("topologyDetail", topologyAfter.ToString()),
@@ -361,7 +361,7 @@ public sealed class PresentationManager : IDisposable
             ("hasMismatch", topology.HasMirrorAspectMismatch.ToString()),
             ("externalCount", topology.ExternalPaths.Count),
             ("topologyDetail", topology.ToString()),
-            ("topologyId", topology.TopologyId));
+            ("topologyId", topology.CurrentTopologyId));
 
         if (triggerMet)
         {

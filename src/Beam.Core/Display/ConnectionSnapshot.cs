@@ -18,7 +18,7 @@ public sealed record ConnectionSnapshot(
     public TimeSpan AgeSince(DateTimeOffset now) => now - TakenAt;
 
     /// <summary>True when another snapshot has the same active set (order-insensitive).</summary>
-    public bool SameDisplayIds(ConnectionSnapshot other)
+    public bool SameDisplayIds(ConnectionSnapshot? other)
     {
         if (other is null)
         {
