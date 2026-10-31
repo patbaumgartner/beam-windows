@@ -132,7 +132,7 @@ PowerToys as-is (see [ADR-0001](docs/04-adr/ADR-0001-upstream-path.md) and
 | [`src/Beam.Tray`](src/Beam.Tray) | The WinForms tray app (`Beam.exe`) |
 | [`src/Beam.Cli`](src/Beam.Cli) | Scriptable CLI front end (`beam`) |
 | [`spikes/`](spikes) | Numbered proof-of-concept spikes (S1–S6) |
-| [`tests/`](tests) | xUnit test suites (93 core + 16 tray) |
+| [`tests/`](tests) | xUnit test suites (93 core + 17 tray) |
 | [`docs/`](docs) | Vision, research, use cases, arc42, ADRs, delivery notes |
 
 ## Building the installer locally
