@@ -1,5 +1,5 @@
-using Beam.Core.Display;
 using System.Runtime.InteropServices;
+using Beam.Core.Display;
 using static Beam.Windows.Display.DisplayNative;
 
 namespace Beam.Windows.Display;

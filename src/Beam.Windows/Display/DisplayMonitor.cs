@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Beam.Core.Display;
+using Beam.Core.Ports;
 using Beam.Core.Stats;
 
 namespace Beam.Windows.Display;
@@ -14,7 +15,7 @@ namespace Beam.Windows.Display;
 /// the S5 acceptance bar is p95 ≤ 1.5s. Worst-case latency is one poll interval plus the
 /// cost of a capture, so a 250 ms cadence comfortably clears that bar for a tray app.
 /// </remarks>
-public sealed class DisplayMonitor : IDisposable
+public sealed class DisplayMonitor : IDisplayChangeSource, IDisposable
 {
     private readonly Func<ConnectionSnapshot> _capture;
     private readonly TimeSpan _pollInterval;
@@ -25,6 +26,7 @@ public sealed class DisplayMonitor : IDisposable
     private ConnectionSnapshot? _last;
     private long _lastChangeTimestamp;
     private Task? _loop;
+    private bool _disposed;
     private LatencySummary _latency = new(0, null, 0, null);
 
     /// <summary>Fired when a change is detected. First raise has <paramref name="previous"/> null.</summary>
@@ -45,6 +47,8 @@ public sealed class DisplayMonitor : IDisposable
     /// <summary>Runs until <see cref="Dispose"/>. Idempotent.</summary>
     public void Start()
     {
+        ObjectDisposedException.ThrowIf(_disposed, this);
+
         lock (_sync)
         {
             if (_loop is not null)
@@ -100,6 +104,13 @@ public sealed class DisplayMonitor : IDisposable
                     onLatency = LatencyUpdated;
                 }
 
+                // Stop() may have been called while this capture was in flight. Once it has
+                // returned, no further callbacks may fire.
+                if (ct.IsCancellationRequested)
+                {
+                    break;
+                }
+
                 onChanged?.Invoke(previous, current);
                 onLatency?.Invoke(latency);
             }
@@ -120,10 +131,26 @@ public sealed class DisplayMonitor : IDisposable
         get { lock (_sync) return _latency; }
     }
 
+    /// <summary>Stops watching. Idempotent and terminal: a stopped monitor cannot restart.</summary>
+    public void Stop()
+    {
+        if (_disposed || _cts.IsCancellationRequested)
+        {
+            return;
+        }
+
+        _cts.Cancel();
+    }
+
     public void Dispose()
     {
-        _cts.Cancel();
+        if (_disposed)
+        {
+            return;
+        }
+
+        Stop();
+        _disposed = true;
         _cts.Dispose();
-        _loop = null;
     }
 }

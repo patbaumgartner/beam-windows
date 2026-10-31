@@ -2,7 +2,10 @@ using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Beam.App.Sessions;
+using Beam.Core.Diagnostics;
 using Beam.Core.Display;
+using Beam.Core.Startup;
 using Microsoft.Win32;
 
 namespace Beam.Tray;
@@ -25,6 +28,18 @@ public sealed class TrayService : IDisposable
     private ToolStripMenuItem? _pauseItem;
     private ToolStripMenuItem? _statusItem;
     private ToolStripMenuItem? _startupItem;
+    private ContextMenuStrip? _menu;
+    private System.Windows.Forms.Timer? _cursorGuard;
+
+    // Cached HKCU Run-key state. Refreshed off the UI thread (see
+    // RefreshStartupStateInBackground) so opening the menu never blocks on registry I/O.
+    private bool _startupEnabled;
+    private int _startupStateVersion;
+    private int _startupRefreshRunning;
+
+    // A state change that arrived while the context menu was open. The shell calls it would
+    // trigger (tooltip text + balloon) are deferred until the menu closes; see ApplyStateToUi.
+    private SessionState? _deferredShellState;
 
     public event Action? ExitRequested;
 
@@ -54,7 +69,13 @@ public sealed class TrayService : IDisposable
         _icon.Icon = CreateTrayIcon();
         _icon.Text = "Beam — Projector mode";
         _icon.Visible = true;
-        _icon.ContextMenuStrip = BuildMenu();
+
+        // Read the Run key once here, on the startup path, then serve it from the cache.
+        // BuildMenu and the menu's Opening handler must not touch the registry (see
+        // RefreshStartupStateInBackground for why).
+        _startupEnabled = IsStartupEnabled();
+        _menu = BuildMenu();
+        _icon.ContextMenuStrip = _menu;
 
         _icon.MouseClick += (_, e) =>
         {
@@ -73,10 +94,10 @@ public sealed class TrayService : IDisposable
             }
         };
 
-        AppLog.Info("TrayService initialised",
+        Log.Info("TrayService initialised",
             "Tray",
             ("hidden", _startHidden),
-            ("startupEnabled", IsStartupEnabled()),
+            ("startupEnabled", _startupEnabled),
             ("systemDpi", GetDpiForSystem()),
             ("iconSizeHint", SuggestIconSize()));
     }
@@ -131,7 +152,7 @@ public sealed class TrayService : IDisposable
         {
             >= 192 => 96, // 192+ DPI  →  200 %+ scaling  →  96 px (sharpest at high DPI)
             >= 144 => 64, // 144–191 DPI → 150 % scaling  →  64 px
-            _      => 48, //  96–143 DPI → 100–150 %     →  48 px
+            _ => 48, //  96–143 DPI → 100–150 %     →  48 px
         };
     }
 
@@ -190,7 +211,22 @@ public sealed class TrayService : IDisposable
     {
         var menu = new ContextMenuStrip();
         menu.ShowImageMargin = false;
-        menu.Opening += (_, _) => RefreshMenuState();
+        menu.Opening += (_, _) =>
+        {
+            NormaliseCursor(menu);
+            RefreshMenuState();
+        };
+        menu.Opened += (_, _) =>
+        {
+            NormaliseCursor(menu);
+            _cursorGuard?.Start();
+        };
+        // Apply anything that arrived while the menu was up as soon as it goes away.
+        menu.Closed += (_, _) =>
+        {
+            _cursorGuard?.Stop();
+            FlushDeferredShellState();
+        };
 
         // Status (read-only header).
         _statusItem = new ToolStripMenuItem(StatusText(_session.State)) { Enabled = false };
@@ -205,12 +241,12 @@ public sealed class TrayService : IDisposable
             if (_session.State == SessionState.Paused)
             {
                 _session.Resume();
-                AppLog.Info("Beam resumed by user", "Tray");
+                Log.Info("Beam resumed by user", "Tray");
             }
             else
             {
                 _session.Pause();
-                AppLog.Info("Beam paused by user", "Tray");
+                Log.Info("Beam paused by user", "Tray");
             }
         };
         menu.Items.Add(_pauseItem);
@@ -220,7 +256,7 @@ public sealed class TrayService : IDisposable
         // registry write, shows a balloon confirmation, and reverts on failure.
         _startupItem = new ToolStripMenuItem("Launch at sign-in")
         {
-            Checked = IsStartupEnabled(),
+            Checked = _startupEnabled,
         };
         _startupItem.Click += (_, _) => ToggleStartup();
         menu.Items.Add(_startupItem);
@@ -231,7 +267,7 @@ public sealed class TrayService : IDisposable
         var applyNow = new ToolStripMenuItem("Apply projector mode now");
         applyNow.Click += (_, _) =>
         {
-            AppLog.Info("Apply-now requested from tray menu", "Tray",
+            Log.Info("Apply-now requested from tray menu", "Tray",
                 ("state", _session.State.ToString()));
             ApplyNowRequested?.Invoke();
         };
@@ -240,7 +276,7 @@ public sealed class TrayService : IDisposable
         var restoreItem = new ToolStripMenuItem("Restore display");
         restoreItem.Click += (_, _) =>
         {
-            AppLog.Info("Restore requested from tray menu", "Tray",
+            Log.Info("Restore requested from tray menu", "Tray",
                 ("state", _session.State.ToString()));
             RestoreRequested?.Invoke();
         };
@@ -251,11 +287,28 @@ public sealed class TrayService : IDisposable
         var exitItem = new ToolStripMenuItem("Exit Beam");
         exitItem.Click += (_, _) =>
         {
-            AppLog.Info("Exit requested from tray menu", "Tray",
+            Log.Info("Exit requested from tray menu", "Tray",
                 ("state", _session.State.ToString()));
             ExitRequested?.Invoke();
         };
         menu.Items.Add(exitItem);
+
+        // Keep the arrow pinned for as long as the drop-down is up. A busy cursor latched during
+        // a transient stall is re-applied by WinForms on every WM_SETCURSOR, so resetting once
+        // when the menu opens is not enough. The menu does no real work, so a wait cursor over
+        // it is always wrong — clear it within a quarter second, however it got there.
+        _cursorGuard = new System.Windows.Forms.Timer { Interval = 250 };
+        _cursorGuard.Tick += (_, _) =>
+        {
+            if (menu.Visible)
+            {
+                NormaliseCursor(menu);
+            }
+            else
+            {
+                _cursorGuard?.Stop();
+            }
+        };
 
         return menu;
     }
@@ -268,10 +321,8 @@ public sealed class TrayService : IDisposable
 
     private void OnStateChanged(SessionEvent evt)
     {
-        AppLog.Info($"[State] {evt.From} → {evt.To} ({evt.Reason})", "State",
-            ("from", evt.From.ToString()),
-            ("to", evt.To.ToString()),
-            ("reason", evt.Reason));
+        // The transition itself is logged once by SessionManager. This handler only
+        // updates the shell UI.
 
         // UI updates must run on the UI thread. If we're already there, apply directly;
         // otherwise hand off to the captured SynchronizationContext. WinForms controls are
@@ -298,17 +349,72 @@ public sealed class TrayService : IDisposable
         {
             _pauseItem.Text = PauseItemText(evt.To);
         }
-        _icon.Text = evt.To == SessionState.Idle
+
+        // Tooltip text and balloons both go through Shell_NotifyIcon, which is serviced by
+        // this same UI thread — and while the context menu is open that thread is parked
+        // inside the drop-down's modal message loop. Re-entering the shell from there is what
+        // leaves the tray wedged with a busy cursor and an unresponsive menu, so hold the
+        // state change until the menu closes.
+        if (IsContextMenuOpen)
+        {
+            _deferredShellState = evt.To;
+            Log.Info("[Tray] deferring shell update until the menu closes", "Tray",
+                ("state", evt.To.ToString()));
+            return;
+        }
+
+        ApplyShellState(evt.To);
+    }
+
+    /// <summary>
+    /// Applies a session state to the shell-facing parts of the icon: the tooltip text and
+    /// the transition balloon. Must only be called when no context menu is displayed.
+    /// </summary>
+    private void ApplyShellState(SessionState state)
+    {
+        _icon.Text = state == SessionState.Idle
             ? "Beam — Projector mode"
-            : $"Beam — {StatusText(evt.To)}";
+            : $"Beam — {StatusText(state)}";
 
         // Notify only on transitions that matter to the user, not every micro-state.
         // When started via autostart (--hidden) the initial idle balloon is suppressed.
-        if (!(_startHidden && evt.To == SessionState.Idle)
-            && evt.To is SessionState.Active or SessionState.Restoring or SessionState.Paused or SessionState.Idle)
+        if (!(_startHidden && state == SessionState.Idle)
+            && state is SessionState.Active or SessionState.Restoring or SessionState.Paused or SessionState.Idle)
         {
-            _icon.ShowBalloonTip(700, "Beam", $"Beam is now {StatusText(evt.To).ToLowerInvariant()}.", ToolTipIcon.Info);
+            _icon.ShowBalloonTip(700, "Beam", $"Beam is now {StatusText(state).ToLowerInvariant()}.", ToolTipIcon.Info);
         }
+    }
+
+    private bool IsContextMenuOpen => _menu is { Visible: true };
+
+    /// <summary>
+    /// Pins the drop-down to the normal arrow cursor.
+    ///
+    /// WinForms registers its window classes with a NULL class cursor, so whatever cursor the
+    /// shell last displayed stays latched while the pointer is over a WinForms window. If the
+    /// shell paints its busy/starting cursor (a transient UI-thread stall, an AV scan, shell
+    /// contention while the tray overflow animates), the hourglass sticks to the context menu
+    /// even though the app is responding — the menu then looks hung. Setting the cursor
+    /// explicitly makes the drop-down re-assert the arrow on WM_SETCURSOR, and assigning
+    /// <see cref="Cursor.Current"/> clears it immediately for a pointer that is already
+    /// resting on the menu (moving the mouse would otherwise be required).
+    /// </summary>
+    private static void NormaliseCursor(ContextMenuStrip menu)
+    {
+        menu.Cursor = Cursors.Default;
+        Cursor.Current = Cursors.Default;
+    }
+
+    /// <summary>Replays a shell update that was held back while the menu was open.</summary>
+    private void FlushDeferredShellState()
+    {
+        if (_deferredShellState is not { } state)
+        {
+            return;
+        }
+
+        _deferredShellState = null;
+        ApplyShellState(state);
     }
 
     private void ShowStatus()
@@ -316,7 +422,7 @@ public sealed class TrayService : IDisposable
         string display = DescribeDisplays();
         string note = $"Status: {StatusText(_session.State)}\n{display}";
         _icon.ShowBalloonTip(3000, "Beam", note, ToolTipIcon.Info);
-        AppLog.Info("Status balloon shown", "Tray",
+        Log.Info("Status balloon shown", "Tray",
             ("state", _session.State.ToString()),
             ("displays", display.Replace("\n", " | ")));
     }
@@ -339,7 +445,61 @@ public sealed class TrayService : IDisposable
         }
         if (_startupItem is not null)
         {
-            _startupItem.Checked = IsStartupEnabled();
+            // Serve the cached value — Opening runs on the UI thread on the way into the
+            // drop-down's modal loop, so a synchronous registry read here would block the
+            // menu from appearing. Kick off a refresh and apply it when it lands.
+            _startupItem.Checked = _startupEnabled;
+            RefreshStartupStateInBackground();
+        }
+    }
+
+    /// <summary>
+    /// Re-reads the HKCU Run key on the thread pool and publishes the result to the UI
+    /// thread. Used instead of reading the registry inline when the menu opens: registry
+    /// reads can block (profile load, AV filter, a concurrent writer) and any blocking call
+    /// on the UI thread here freezes the menu, which the shell paints as a wait cursor.
+    /// </summary>
+    private void RefreshStartupStateInBackground()
+    {
+        if (Interlocked.Exchange(ref _startupRefreshRunning, 1) == 1)
+        {
+            return;
+        }
+
+        int version = Volatile.Read(ref _startupStateVersion);
+        Task.Run(() =>
+        {
+            bool enabled;
+            try
+            {
+                enabled = IsStartupEnabled();
+            }
+            catch
+            {
+                enabled = _startupEnabled;
+            }
+            finally
+            {
+                Volatile.Write(ref _startupRefreshRunning, 0);
+            }
+
+            _ui?.Post(_ => PublishStartupState(enabled, version), null);
+        });
+    }
+
+    private void PublishStartupState(bool enabled, int version)
+    {
+        // Drop the result if the user toggled the setting while the read was in flight —
+        // otherwise a stale read would flip the checkbox back and fight the click handler.
+        if (version != _startupStateVersion)
+        {
+            return;
+        }
+
+        _startupEnabled = enabled;
+        if (_startupItem is not null && _startupItem.Checked != enabled)
+        {
+            _startupItem.Checked = enabled;
         }
     }
 
@@ -392,7 +552,7 @@ public sealed class TrayService : IDisposable
         if (exePath is null)
         {
             _log("[Startup] cannot resolve the Beam executable path.");
-            AppLog.Warn("Canceled sign-in change — could not resolve the executable path.", "Startup");
+            Log.Warn("Canceled sign-in change — could not resolve the executable path.", "Startup");
             _icon.ShowBalloonTip(3000, "Beam", "Could not update the sign-in setting.", ToolTipIcon.Warning);
             return;
         }
@@ -403,18 +563,21 @@ public sealed class TrayService : IDisposable
             if (enable)
             {
                 key.SetValue(StartupCommand.ValueName, StartupCommand.ValueFor(exePath, launchHidden: true));
-                AppLog.Info("Added Beam to Windows login (registry Run key)", "Startup");
+                Log.Info("Added Beam to Windows login (registry Run key)", "Startup");
                 _log("[Startup] added Beam to Windows login.");
             }
             else
             {
                 key.DeleteValue(StartupCommand.ValueName, throwOnMissingValue: false);
-                AppLog.Info("Removed Beam from Windows login (registry Run key)", "Startup");
+                Log.Info("Removed Beam from Windows login (registry Run key)", "Startup");
                 _log("[Startup] removed Beam from Windows login.");
             }
 
             // Persisted state is now the source of truth — reflect it in the checkbox and
             // confirm to the user (the one place the app gives direct feedback on the toggle).
+            // Bump the version so any refresh started before this write is discarded.
+            _startupEnabled = enable;
+            Interlocked.Increment(ref _startupStateVersion);
             if (_startupItem is not null)
             {
                 _startupItem.Checked = enable;
@@ -427,7 +590,7 @@ public sealed class TrayService : IDisposable
         }
         catch (Exception ex)
         {
-            AppLog.Exception(ex, "Startup",
+            Log.Exception(ex, "Startup",
                 ("operation", enable ? "enable" : "disable"));
             _log($"[Startup] failed to update login entry: {ex.Message}");
 
@@ -435,6 +598,8 @@ public sealed class TrayService : IDisposable
             {
                 _startupItem.Checked = !enable; // revert the toggle
             }
+            _startupEnabled = !enable;
+            Interlocked.Increment(ref _startupStateVersion);
 
             _icon.ShowBalloonTip(
                 3000,
@@ -444,24 +609,19 @@ public sealed class TrayService : IDisposable
         }
     }
 
-    private static string StatusText(SessionState state) => state switch
-    {
-        SessionState.Idle => "Monitoring",
-        SessionState.Detecting => "Detecting…",
-        SessionState.Applying => "Applying…",
-        SessionState.Active => "Presenting",
-        SessionState.Restoring => "Restoring…",
-        SessionState.Paused => "Paused",
-        _ => state.ToString(),
-    };
+    private static string StatusText(SessionState state) => TrayPresentation.StatusText(state);
 
-    private static string PauseItemText(SessionState state) =>
-        state == SessionState.Paused ? "Resume Beam" : "Pause Beam";
+    private static string PauseItemText(SessionState state) => TrayPresentation.PauseItemText(state);
 
     public void Dispose()
     {
         _session.StateChanged -= OnStateChanged;
+        _cursorGuard?.Stop();
+        _cursorGuard?.Dispose();
+        _cursorGuard = null;
         _icon.Visible = false;
         _icon.Dispose();
+        _menu?.Dispose();
+        _menu = null;
     }
 }

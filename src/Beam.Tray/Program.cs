@@ -1,5 +1,11 @@
-using Beam.Windows.Display;
 using System.Windows.Forms;
+using Beam.App.Diagnostics;
+using Beam.App.Journal;
+using Beam.App.Presentation;
+using Beam.App.Sessions;
+using Beam.Core.Diagnostics;
+using Beam.Windows.Display;
+using Beam.Windows.NightLight;
 
 namespace Beam.Tray;
 
@@ -12,6 +18,9 @@ namespace Beam.Tray;
 ///      presentation fix: Night Light off → duplicate/16:9 shared source → readable DPI.
 ///   3. When the external display disconnects, restores the original topology, DPI, and
 ///      Night Light state.
+///
+/// This file is the composition root: it is the only place that knows both the ports
+/// (Core) and the concrete Windows adapters.
 /// </summary>
 
 /// <summary>
@@ -21,7 +30,7 @@ namespace Beam.Tray;
 internal sealed class TrayApplicationContext : ApplicationContext
 {
     private readonly TrayService _tray;
-    private Form? _hostForm;
+    private readonly Form? _hostForm;
 
     public event Action? ApplyNowRequested;
     public event Action? RestoreRequested;
@@ -43,7 +52,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             Opacity = 0,
             Size = new System.Drawing.Size(1, 1),
             FormBorderStyle = FormBorderStyle.None,
-            Text = "Beam hidden host"
+            Text = "Beam hidden host",
         };
         _hostForm.FormClosed += (_, _) => ExitThread();
 
@@ -77,6 +86,11 @@ internal static class Program
         // Set DPI awareness before any window is created — required for the shell to
         // report the correct icon size in the system tray on high-DPI displays.
         DisplayNative.SetProcessDpiAwarenessContext(DisplayNative.DpiAwarenessPerMonitorV2);
+
+        // Install the production log sink before anything else can log.
+        var sink = new FileLogSink();
+        Log.SetSink(sink);
+
         ApplicationConfiguration.Initialize();
 
         // Parse --hidden flag: autostart from the installer uses this to suppress the
@@ -85,64 +99,64 @@ internal static class Program
                                     a.Equals("-hidden", StringComparison.OrdinalIgnoreCase) ||
                                     a.Equals("/hidden", StringComparison.OrdinalIgnoreCase));
 
-        AppLog.Info("Beam process starting",
+        Log.Info("Beam process starting",
             "Startup",
             ("args", string.Join(",", args)),
             ("hidden", hidden),
             ("dpiAware", true),
-            ("logFile", AppLog.DetailedLogPath));
+            ("logFile", sink.DetailedLogPath));
 
         // Single instance per user. Without this, an autostart instance and a manual
         // launch would run two monitor loops and could double-apply the display fix.
         bool isFirstInstance;
-        using (var singleInstance = new Mutex(initiallyOwned: true, @"Local\Beam.SingleInstance", out isFirstInstance))
+        using var singleInstance = new Mutex(initiallyOwned: true, @"Local\Beam.SingleInstance", out isFirstInstance);
+        if (!isFirstInstance)
         {
-            if (!isFirstInstance)
-            {
-                AppLog.Warn("Another Beam instance is already running — exiting.", "Startup");
-                return;
-            }
-
-            var session = new SessionManager();
-
-            // Action<string> wrapper: bridges components' Action<string> API onto AppLog.
-            Action<string> log = msg => AppLog.Info(msg);
-
-            using var monitor = new DisplayMonitor(
-                DisplayInventory.Capture,
-                TimeSpan.FromMilliseconds(250));
-
-            // TrayApplicationContext owns the hidden host form and the tray icon.
-            // Application.Run(context) enters the WinForms message loop. It returns only
-            // when ExitThread() is called — i.e. when the user clicks "Exit Beam".
-            using var context = new TrayApplicationContext(session, log, hidden);
-
-            var presentation = new PresentationManager(monitor, session, log);
-            context.ApplyNowRequested += presentation.ApplyNow;
-            context.RestoreRequested += presentation.RestoreNow;
-
-            // Recover first: if a previous Beam was killed mid-fix, restore the original
-            // display configuration before we start watching for new changes.
-            presentation.TryRecover();
-
-            monitor.Start();
-
-            // Apply fix immediately if mismatch is already present at startup.
-            presentation.CheckCurrentState();
-
-            AppLog.Info("Beam started. Watching for external displays.", "Startup",
-                ("appVersion", typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown"),
-                ("osVersion", Environment.OSVersion.ToString()),
-                ("machineName", Environment.MachineName),
-                ("userName", Environment.UserName));
-
-            session.StateChanged += evt =>
-                AppLog.Info($"[State] {evt.From} → {evt.To} ({evt.Reason})", "State");
-
-            Application.Run(context);
-
-            AppLog.Info("Application.Run returned — cleaning up.", "Shutdown");
-            session.Dispose();
+            Log.Warn("Another Beam instance is already running — exiting.", "Startup");
+            return;
         }
+
+        using var session = new SessionManager();
+
+        // Action<string> wrapper: bridges components' Action<string> API onto the log sink.
+        Action<string> log = msg => Log.Info(msg, "Tray");
+
+        using var monitor = new DisplayMonitor(
+            DisplayInventory.Capture,
+            TimeSpan.FromMilliseconds(250));
+        using var presentation = new PresentationManager(
+            monitor,
+            new DisplayInventory(),
+            new DisplayModeController(),
+            new WindowsDpiController(),
+            new NightLightController(),
+            new JournalStore(),
+            session);
+
+        // TrayApplicationContext owns the hidden host form and the tray icon.
+        // Application.Run(context) enters the WinForms message loop. It returns only
+        // when ExitThread() is called — i.e. when the user clicks "Exit Beam".
+        using var context = new TrayApplicationContext(session, log, hidden);
+        context.ApplyNowRequested += () => _ = presentation.ApplyNowAsync();
+        context.RestoreRequested += () => _ = presentation.RestoreNowAsync();
+
+        // Recover first: if a previous Beam was killed mid-fix, restore the original
+        // display configuration before we start watching for new changes.
+        presentation.TryRecoverAsync().GetAwaiter().GetResult();
+
+        monitor.Start();
+
+        // Apply the fix immediately if a mismatch is already present at startup.
+        _ = presentation.CheckCurrentStateAsync();
+
+        Log.Info("Beam started. Watching for external displays.", "Startup",
+            ("appVersion", typeof(Program).Assembly.GetName().Version?.ToString() ?? "unknown"),
+            ("osVersion", Environment.OSVersion.ToString()),
+            ("machineName", Environment.MachineName),
+            ("userName", Environment.UserName));
+
+        Application.Run(context);
+
+        Log.Info("Application.Run returned — cleaning up.", "Shutdown");
     }
 }

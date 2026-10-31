@@ -14,6 +14,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Beam.Core\Beam.Core.csproj" />
     <ProjectReference Include="..\Beam.Windows\Beam.Windows.csproj" />
+    <ProjectReference Include="..\Beam.App\Beam.App.csproj" />
   </ItemGroup>
 
   <ItemGroup>

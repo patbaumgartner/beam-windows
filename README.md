@@ -47,8 +47,10 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 120+ unit tests on the decision logic and tray wiring (see
-  [docs/05-delivery/spike-results.md](docs/05-delivery/spike-results.md)).
+- 🧪 **Tested** — 257 xUnit tests, with the application layer driven entirely through
+  fake ports. Core is at ~91% line coverage and App at ~91%; see
+  [test-strategy.md](docs/05-delivery/test-strategy.md) and
+  [docs/06-development/testing.md](docs/06-development/testing.md).
 
 ## Quick start
 
@@ -67,7 +69,12 @@ git clone https://github.com/patbaumgartner/beam-windows.git
 cd beam-windows
 dotnet build Beam.sln
 dotnet test Beam.sln
+pwsh eng/coverage.ps1        # per-assembly coverage table
 ```
+
+The suite runs on any Windows machine with the SDK; no projector is required. See
+[docs/06-development/testing.md](docs/06-development/testing.md) for the test layout and
+[architecture.md](docs/06-development/architecture.md) for the dependency rules.
 
 ## Usage
 
@@ -93,7 +100,7 @@ beam dpi read|set <percent> [--json]
 beam nightlight <on|off> [--json]
 ```
 
-Exit codes: `0` success · `1` failure · `2` bad arguments · `3` no projector.
+Exit codes: `0` success · `1` failure · `2` bad arguments · `3` no projector · `4` unsupported.
 
 ```powershell
 beam status --json
@@ -114,22 +121,35 @@ beam restore
 4. **Rollback** — on disconnect (or manual restore), `SetDisplayConfig` restores the
    extended topology and each captured DEVMODE; Night Light is restored semantically.
 
-The engine is deliberately split: **`Beam.Core`** holds the pure, testable logic
-(aspect matching, DPI planning) with **no Windows dependency**, so it can be donated to
-PowerToys as-is (see [ADR-0001](docs/04-adr/ADR-0001-upstream-path.md) and
+The engine is deliberately layered:
+
+| Layer | Knows about | Never references |
+|---|---|---|
+| `Beam.Core` | domain types, ports, logging abstraction | Windows, UI, P/Invoke |
+| `Beam.App` | orchestration, journal, file logging | `Beam.Windows`, `Beam.Tray`, WinForms |
+| `Beam.Windows` | Win32/WinRT adapters implementing the ports | UI |
+| `Beam.Tray` / `Beam.Cli` | composition roots | — |
+
+The presentation sequence lives in `Beam.App` and talks only to Core ports, so the whole
+apply → active → disconnect → restore cycle is unit-tested with fakes — no projector, no
+screen blanking. That split also means the pure engine can be donated to PowerToys as-is
+(see [ADR-0001](docs/04-adr/ADR-0001-upstream-path.md),
+[ADR-0014](docs/04-adr/ADR-0014-application-layer-and-ports.md), and
 [docs/05-delivery/upstream-plan.md](docs/05-delivery/upstream-plan.md)).
 
 ## Project layout
 
 | Path | Purpose |
 |---|---|
-| [`src/Beam.Core`](src/Beam.Core) | Decision logic — pure, testable, no Windows |
-| [`src/Beam.Windows`](src/Beam.Windows) | Thin P/Invoke layer over the display config APIs |
-| [`src/Beam.Tray`](src/Beam.Tray) | The WinForms tray app (`Beam.exe`) |
-| [`src/Beam.Cli`](src/Beam.Cli) | Scriptable CLI front end (`beam`) |
-| [`spikes/`](spikes) | Numbered proof-of-concept spikes (S1–S6) |
-| [`tests/`](tests) | xUnit test suites (93 core + 32 tray) |
-| [`docs/`](docs) | Vision, research, use cases, arc42, ADRs, delivery notes |
+| [`src/Beam.Core`](src/Beam.Core) | Pure domain: topology model, trigger, DPI planning, Night Light codec, ports |
+| [`src/Beam.App`](src/Beam.App) | UI-free application layer: session state machine, presentation sequence, journal, file logging |
+| [`src/Beam.Windows`](src/Beam.Windows) | Thin Win32/WinRT adapters that implement the Core ports |
+| [`src/Beam.Tray`](src/Beam.Tray) | WinForms tray composition root (`Beam.exe`) |
+| [`src/Beam.Cli`](src/Beam.Cli) | Scriptable CLI composition root (`beam`) |
+| [`tests/`](tests) | Six xUnit projects: Core, App, Windows, Tray, CLI, Architecture |
+| [`eng/`](eng) | Coverage reporter/gate and Markdown link checker used by CI |
+| [`spikes/`](spikes) | Numbered proof-of-concept spikes (S1–S7) |
+| [`docs/`](docs) | Vision, research, use cases, arc42, ADRs, delivery and development notes |
 
 ## Building the installer locally
 
@@ -143,6 +163,23 @@ JRSoftware.InnoSetup`).
 
 CI builds a snapshot installer on every push to `main` and a release installer for every
 `v*` tag — no local tooling needed.
+
+## Quality gates
+
+Every pull request runs the same gates locally and in CI:
+
+| Gate | Command | Bar |
+|---|---|---|
+| Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
+| Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
+| Tests | `dotnet test Beam.sln -c Release` | 257 pass, no hardware required |
+| Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
+| Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
+| Docs | `pwsh eng/check-links.ps1` | every relative Markdown link resolves |
+
+Windows and Tray coverage is reported for visibility but not gated: those assemblies are
+thin OS adapters whose meaningful paths need a real graphics stack and are verified manually
+against the hardware matrix in [test-strategy.md](docs/05-delivery/test-strategy.md).
 
 ## Roadmap & status
 
