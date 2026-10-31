@@ -1,0 +1,32 @@
+---
+name: Bug report
+about: Something is broken or behaving unexpectedly
+title: ''
+labels: bug
+assignees: ''
+---
+
+**Describe the bug**
+A clear and concise description of what the bug is.
+
+**To reproduce**
+Steps to reproduce the behaviour:
+1. Connect external display to port '...'
+2. Set duplicate mode '....'
+3. Click '....'
+4. See error
+
+**Expected behaviour**
+What you expected to happen.
+
+**Actual behaviour**
+What actually happened. Include the tray balloon text or `beam status --json` output if possible.
+
+**Environment**
+- Windows build (e.g. 11 26H2 build 26300):
+- External display model + connection (e.g. DELL U2718Q via HDMI):
+- Beam version:
+- Install method (installer / from source):
+
+**Logs**
+Attach the Beam log at `%LOCALAPPDATA%\Beam\beam.log`, removing any personal info.

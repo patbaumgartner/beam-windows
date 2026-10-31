@@ -1,0 +1,17 @@
+# Normalise line endings; force LF for build-defining text files.
+* text=auto
+
+*.cs    text eol=crlf
+*.csproj text eol=crlf
+*.sln   text eol=crlf
+*.props text eol=crlf
+*.ps1   text eol=crlf
+*.iss   text eol=crlf
+
+*.md    text eol=crlf
+*.yml   text eol=crlf
+*.json  text eol=crlf
+
+*.ico   binary
+*.png   binary
+*.exe   binary
