@@ -57,7 +57,18 @@ public sealed class DisplayMonitor : IDisplayChangeSource, IDisposable
             }
 
             var sw = Stopwatch.StartNew();
-            _last = _capture();
+            try
+            {
+                _last = _capture();
+            }
+            catch (Exception)
+            {
+                // A transient capture failure at startup (display config in flux, driver
+                // hiccup, dock re-enumerating) must not kill the monitor: start with no
+                // baseline and let the loop establish one on the first successful poll.
+                _last = null;
+            }
+
             _lastChangeTimestamp = sw.ElapsedTicks;
             Current = _last;
 
