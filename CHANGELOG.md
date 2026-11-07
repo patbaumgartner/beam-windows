@@ -50,6 +50,13 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   the click handler — no more stale "Pause Beam" when already paused.
 - **Single-instance and startup initiation**: `ToggleStartup` no longer resolves a null
   executable path silently; it is reported and aborted with feedback.
+- **The tray project builds again.** Five stale pre-refactor source files
+  (`SessionManager`, `PresentationManager`, `JournalStore`, `StartupCommand`,
+  `DisplayModeController`) were left in `Beam.Tray` alongside the real modules in
+  `Beam.App`/`Beam.Core`/`Beam.Windows`; the SDK compiles every `.cs`, so the duplicates
+  broke the build and shadowed the shared `SessionManager` with a second, unrelated
+  instance. They are removed and `Program.cs` now wires the `Beam.Windows` adapters
+  directly.
 
 ### Changed
 - **New laser-beam brand icon** (tray + exe + installer): a stylised laser cone in
@@ -83,10 +90,17 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
 - Coverage for the adapter contract: `Beam.Windows.Tests` (display-monitor polling,
   LUID/rational/DEVMODE helpers, mode ranking) and domain model coverage for the topology
   model, topology ids and trigger condition (`Beam.Core.Tests/DisplayModelTests.cs`).
-- **258 tests** across six test projects (was 100-odd across Core + tray), including a
+- **330 tests** across six test projects (was 100-odd across Core + tray), including a
   guard against composition-root binary name collisions.
 - `DisplayMonitor` lifecycle is now explicit: `Stop()`/`Dispose()` are idempotent and
   terminal, `Start()` after dispose throws.
+- Stress and interaction suites: `Beam.App.Tests/StressTests.cs` (burst display changes,
+  concurrent `ApplyNow`/`RestoreNow` through the gate, repeated apply→restore cycles,
+  session state-machine races), `Beam.Windows.Tests/DisplayMonitorStressTests.cs` (real
+  polling loop vs. scripted hardware, p95 latency bound, transient capture failures),
+  and `Beam.Tray.Tests/TrayInteractionTests.cs` + concurrency tests in
+  `SessionManagerTests.cs` (tray text/labels, startup Run-key round-trip, cursor-guard
+  lifecycle, exactly-one-winner `TryBeginFix`).
 - File logging writes `beam.log` (human) and `beam-detailed.jsonl` (structured) under
   `%LOCALAPPDATA%\Beam`; a locked log file never takes the app down.
 
