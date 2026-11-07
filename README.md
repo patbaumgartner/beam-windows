@@ -20,6 +20,10 @@ flowchart LR
     --> B["Disconnect<br/><br/>- restore original<br/>  topology + resolution<br/>- restore DPI<br/>- restore Night Light<br/>  (semantic, verified)"]
 ```
 
+<p>
+  <img src="docs/media/before-after.svg" alt="Before: mirrored 16:10 desktop letterboxed on a 16:9 projector; after: shared 16:9 source with readable DPI" width="720">
+</p>
+
 ## Why
 
 Windows' "Duplicate" mode mirrors your laptop's *own* aspect ratio. If your panel is
@@ -47,8 +51,8 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 330 xUnit tests, with the application layer driven entirely through
-  fake ports. Core is at ~91% line coverage and App at ~91%; see
+- 🧪 **Tested** — 519 xUnit tests, with the application layer driven entirely through
+  fake ports. Core is at ~96% line coverage and App at ~97%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
 
@@ -77,6 +81,10 @@ The suite runs on any Windows machine with the SDK; no projector is required. Se
 [architecture.md](docs/06-development/architecture.md) for the dependency rules.
 
 ## Usage
+
+<p>
+  <img src="docs/media/tray-menu.svg" alt="Beam tray icon with context menu: status line, Apply projector mode now (enabled), Restore display (disabled while not presenting), Pause, Open log folder, Run at sign-in, About, Exit" width="380">
+</p>
 
 ### Tray
 
@@ -123,6 +131,10 @@ beam restore
 
 The engine is deliberately layered:
 
+<p>
+  <img src="docs/media/architecture.svg" alt="Beam layering: Tray, Cli, Windows adapters on top; Beam.App orchestration in the middle; Beam.Core domain at the bottom" width="640">
+</p>
+
 | Layer | Knows about | Never references |
 |---|---|---|
 | `Beam.Core` | domain types, ports, logging abstraction | Windows, UI, P/Invoke |
@@ -132,7 +144,14 @@ The engine is deliberately layered:
 
 The presentation sequence lives in `Beam.App` and talks only to Core ports, so the whole
 apply → active → disconnect → restore cycle is unit-tested with fakes — no projector, no
-screen blanking. That split also means the pure engine can be donated to PowerToys as-is
+screen blanking. The session state machine is exhaustively matrix-tested (every state ×
+every transition):
+
+<p>
+  <img src="docs/media/session-state-machine.svg" alt="Session state machine: Idle → Applying → Active → Restoring → Idle, with Paused side-state" width="640">
+</p>
+
+That split also means the pure engine can be donated to PowerToys as-is
 (see [ADR-0001](docs/04-adr/ADR-0001-upstream-path.md),
 [ADR-0014](docs/04-adr/ADR-0014-application-layer-and-ports.md), and
 [docs/05-delivery/upstream-plan.md](docs/05-delivery/upstream-plan.md)).
@@ -172,7 +191,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 330 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 519 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Docs | `pwsh eng/check-links.ps1` | every relative Markdown link resolves |

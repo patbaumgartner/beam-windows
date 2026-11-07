@@ -92,14 +92,14 @@ pwsh eng/coverage.ps1 -Enforce     # fail below the gate (used by CI)
 The script unions the Cobertura reports from every test project, so a line counts as
 covered if any project exercised it.
 
-| Assembly | Current (2026-11-01) | Gate |
+| Assembly | Current (2026-11-07) | Gate |
 |---|---|---|
-| `Beam.Core` | 365 / 400 = 91.3% | ≥ 85% |
-| `Beam.App` | 385 / 423 = 91.0% | ≥ 80% |
-| `Beam.Cli` | 238 / 305 = 78.0% | ≥ 75% |
-| `Beam.Windows` | 94 / 593 = 15.9% | reported only |
-| `Beam.Tray` | 10 / 394 = 2.5% | reported only |
-| Overall | 1092 / 2115 = 51.6% | — |
+| `Beam.Core` | 382 / 400 = 95.5% | ≥ 85% |
+| `Beam.App` | 409 / 423 = 96.7% | ≥ 80% |
+| `Beam.Cli` | 247 / 305 = 81.0% | ≥ 75% |
+| `Beam.Windows` | 99 / 598 = 16.6% | reported only |
+| `Beam.Tray` | 12 / 482 = 2.5% | reported only |
+| Overall | 1149 / 2208 = 52.0% | — |
 
 The gate is a regression alarm, not a target. A change that lowers Core or App coverage by
 more than a rounding error needs a justification in the pull request.
