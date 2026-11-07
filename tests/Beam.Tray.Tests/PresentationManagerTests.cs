@@ -1,3 +1,4 @@
+using Beam.App.Presentation;
 using Beam.Core.Display;
 
 namespace Beam.Tray.Tests;

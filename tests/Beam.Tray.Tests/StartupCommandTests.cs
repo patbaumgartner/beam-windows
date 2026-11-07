@@ -1,3 +1,4 @@
+using Beam.Core.Startup;
 using Beam.Tray;
 
 namespace Beam.Tray.Tests;

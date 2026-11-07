@@ -1,9 +1,10 @@
-﻿using Beam.Core.NightLight;
-using Beam.Windows.NightLight;
+using Beam.App.Journal;
+using Beam.Core.NightLight;
+using Beam.Core.Ports;
 
 namespace Beam.Tray.Tests;
 
-/// <summary>Round-trip tests for the crash-safe journal.</summary>
+/// <summary>Round-trip tests for the crash-safe journal (Tray contract, AppJournal tests too).</summary>
 public class JournalStoreTests
 {
     /// <summary>Real default Night Light value, 38 bytes, off via schedule.</summary>
@@ -36,7 +37,7 @@ public class JournalStoreTests
             var store = new JournalStore(dir);
             store.BeginApply("test-fix", new[] { Snapshot() });
 
-            JournalStore.Journal? j = store.Read();
+            JournalRecord? j = store.Read();
 
             Assert.NotNull(j);
             Assert.True(j!.IsActive);
@@ -46,27 +47,6 @@ public class JournalStoreTests
             Assert.Single(j.NightLight!);
             Assert.Equal(@"KEY\path", j.NightLight![0].KeyPath);
             Assert.Equal("Data", j.NightLight![0].ValueName);
-        }
-        finally
-        {
-            Directory.Delete(dir, recursive: true);
-        }
-    }
-
-    [Fact]
-    public void MarkIdle_SetsInactive_ReadReturnsFalse()
-    {
-        string dir = TempDir();
-        try
-        {
-            var store = new JournalStore(dir);
-            store.BeginApply("test-fix", null);
-            store.MarkIdle("done");
-
-            JournalStore.Journal? j = store.Read();
-
-            Assert.NotNull(j);
-            Assert.False(j!.IsActive);
         }
         finally
         {
@@ -143,6 +123,32 @@ public class JournalStoreTests
 
             // Must not throw — a corrupt journal must not prevent startup.
             Assert.Null(store.Read());
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void ConcurrentWrites_NoException_IsIdempotent()
+    {
+        string dir = TempDir();
+        try
+        {
+            var store = new JournalStore(dir);
+            var barrier = new Barrier(16);
+
+            Parallel.For(0, 16, _ =>
+            {
+                barrier.SignalAndWait();
+                store.BeginApply("parallel-" + Thread.CurrentThread.ManagedThreadId, new[] { Snapshot() });
+            });
+
+            // The journal must be readable and valid after concurrent writes.
+            var j = store.Read();
+            Assert.NotNull(j);
+            Assert.True(j!.IsActive);
         }
         finally
         {
