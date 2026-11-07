@@ -58,6 +58,32 @@ public class TrayInteractionTests
         Assert.Equal("Pause Beam", TrayPresentation.PauseItemText(SessionState.Restoring));
     }
 
+    // ── Contextual enabling of the manual actions (no dead clicks) ──────────────
+
+    [Theory]
+    [InlineData(SessionState.Idle, true)]
+    [InlineData(SessionState.Detecting, false)]
+    [InlineData(SessionState.Applying, false)]
+    [InlineData(SessionState.Active, false)]
+    [InlineData(SessionState.Restoring, false)]
+    [InlineData(SessionState.Paused, false)]
+    public void CanApplyNow_OnlyWhenIdle(SessionState state, bool expected)
+    {
+        Assert.Equal(expected, TrayPresentation.CanApplyNow(state));
+    }
+
+    [Theory]
+    [InlineData(SessionState.Idle, false)]
+    [InlineData(SessionState.Detecting, false)]
+    [InlineData(SessionState.Applying, false)]
+    [InlineData(SessionState.Active, true)]
+    [InlineData(SessionState.Restoring, false)]
+    [InlineData(SessionState.Paused, false)]
+    public void CanRestore_OnlyWhenActive(SessionState state, bool expected)
+    {
+        Assert.Equal(expected, TrayPresentation.CanRestore(state));
+    }
+
     // ── Startup command: the registry Run-key value the “Launch at sign-in” toggle writes ──
 
     private const string Exe = @"C:\Program Files\Beam\Beam.exe";
