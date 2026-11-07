@@ -45,20 +45,21 @@ public sealed class DpiScale
         int max = maxRel.Value;
 
         // minScaleRel is a count of steps below the recommended scale, so it must be <= 0.
-        if (min > 0 || max < min || cur < min || cur > max)
+        // int.MinValue cannot be negated (two's complement), so reject it up front.
+        if (min == int.MinValue || min > 0 || max < min || cur < min || cur > max)
         {
             return null;
         }
 
-        int minStep = Math.Abs(min);   // ladder index of 100%
-        int maxIndex = minStep + max;  // ladder index of the maximum scale
+        int minStep = -min;            // ladder index of 100%
+        long maxIndex = (long)minStep + max;  // ladder index of the maximum scale
         if (minStep >= DpiScaleLadder.Values.Length
             || maxIndex >= DpiScaleLadder.Values.Length)
         {
             return null;
         }
 
-        int curIndex = minStep + cur;
+        long curIndex = (long)minStep + cur;
         if (curIndex < 0 || curIndex >= DpiScaleLadder.Values.Length)
         {
             return null;

@@ -50,12 +50,15 @@ public class DisplayMonitorStressTests
 
         monitor.Start();
 
-        // Burst through several distinct states quickly.
+        // Burst through several distinct states quickly. Each state is held for
+        // >= 3 poll intervals because Windows' default timer resolution (~15.6 ms)
+        // makes Task.Delay(5) fire late, and a tick that lands between holds would
+        // otherwise legitimately skip a state.
         var taps = new[] { Snapshot("A", "B"), Snapshot("A", "B", "C"), Snapshot("A", "B"), Snapshot("A") };
         foreach (var t in taps)
         {
             state[0] = t;
-            await Task.Delay(15); // let a poll tick observe it
+            await Task.Delay(45); // let >= 3 poll ticks observe it
         }
 
         await WaitUntilAsync(() => Volatile.Read(ref events) >= 3);
