@@ -47,7 +47,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 257 xUnit tests, with the application layer driven entirely through
+- 🧪 **Tested** — 258 xUnit tests, with the application layer driven entirely through
   fake ports. Core is at ~91% line coverage and App at ~91%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
@@ -145,7 +145,7 @@ screen blanking. That split also means the pure engine can be donated to PowerTo
 | [`src/Beam.App`](src/Beam.App) | UI-free application layer: session state machine, presentation sequence, journal, file logging |
 | [`src/Beam.Windows`](src/Beam.Windows) | Thin Win32/WinRT adapters that implement the Core ports |
 | [`src/Beam.Tray`](src/Beam.Tray) | WinForms tray composition root (`Beam.exe`) |
-| [`src/Beam.Cli`](src/Beam.Cli) | Scriptable CLI composition root (`beam`) |
+| [`src/Beam.Cli`](src/Beam.Cli) | Scriptable CLI composition root (`Beam.Cli.exe`, invoked as `beam`) |
 | [`tests/`](tests) | Six xUnit projects: Core, App, Windows, Tray, CLI, Architecture |
 | [`eng/`](eng) | Coverage reporter/gate and Markdown link checker used by CI |
 | [`spikes/`](spikes) | Numbered proof-of-concept spikes (S1–S7) |
@@ -172,7 +172,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 257 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 258 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Docs | `pwsh eng/check-links.ps1` | every relative Markdown link resolves |

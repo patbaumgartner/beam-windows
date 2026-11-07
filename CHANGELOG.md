@@ -4,7 +4,21 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Current version is **0.1.0** (per `installer/build.ps1` default).
+Current version is **0.1.1** (per `installer/build.ps1` default).
+
+## [0.1.1] — 2026-11-07
+
+### Fixed
+- **The installer no longer overwrites the tray with the CLI.** The CLI published a
+  lowercase `beam.exe` and the tray `Beam.exe`; on Windows' case-insensitive filesystem,
+  installing both into one directory silently replaced the tray app with the CLI, so
+  `Beam.exe` was really the command-line tool and never started the tray. The CLI now
+  publishes as `Beam.Cli.exe` (invoked as `beam`), and an architecture test guards the
+  two composition-root outputs against case-folding collisions.
+
+### Changed
+- Version bumped to **0.1.1** so the fixed installer is distinguishable from the 0.1.0
+  build that shipped the sticky-cursor bug. `Beam.exe` now reports `appVersion=0.1.1.0`.
 
 ## [Unreleased]
 
@@ -43,9 +57,39 @@ Current version is **0.1.0** (per `installer/build.ps1` default).
   polygon so it survives downscaling. Reads on both light and dark taskbars. Applies to
   the runtime tray icon (`TrayService.DrawProjectorIcon`) and the multi-size
   `app.ico` (`installer/generate-icon.ps1`).
+- **Decoupled into five projects.** The presentation engine moved from inside the tray
+  into a UI-free `Beam.App` layer (net10.0) that talks only to ports declared in
+  `Beam.Core.Ports`. `Beam.Windows` is now the single home for Win32/WinRT adapters;
+  `Beam.Tray` and `Beam.Cli` are thin composition roots. The whole apply → active →
+  disconnect → restore cycle is unit-tested with fakes — no projector, no screen
+  blanking (see [ADR-0014](docs/04-adr/ADR-0014-application-layer-and-ports.md)).
+- **Documentation rewritten for what actually ships.** New
+  [docs/06-development](docs/06-development) (architecture, testing, debugging,
+  releasing), the arc42 building-block view now matches the five projects, and the
+  test strategy reports the real coverage instead of an aspirational matrix.
+- **CI rewritten and gated.** `.github/workflows/ci.yml` now builds and tests Debug and
+  Release, verifies formatting with `dotnet format`, enforces coverage gates on
+  Core/App/CLI, and checks that every relative docs link resolves. Snapshot installers
+  are still built on every `main` push; release installers on `v*` tags.
 
 ### Added
-- `StartupCommand` pure-logic helper + 9 unit tests (in `Beam.Tray.Tests`).
+- `StartupCommand` pure-logic helper + unit tests (in `Beam.Tray.Tests`).
+- `Beam.App` project with `PresentationManager`, `SessionManager`, `JournalStore` and
+  `FileLogSink`, all testable against fake ports.
+- `Beam.Architecture.Tests` — project-reference rules and no-UI/no-P/Invoke guards for
+  the portable layers.
+- `eng/coverage.ps1` (union Cobertura report + Core ≥ 85 / App ≥ 80 / CLI ≥ 75 gate) and
+  `eng/check-links.ps1`.
+- Coverage for the adapter contract: `Beam.Windows.Tests` (display-monitor polling,
+  LUID/rational/DEVMODE helpers, mode ranking) and domain model coverage for the topology
+  model, topology ids and trigger condition (`Beam.Core.Tests/DisplayModelTests.cs`).
+- **258 tests** across six test projects (was 100-odd across Core + tray), including a
+  guard against composition-root binary name collisions.
+- `DisplayMonitor` lifecycle is now explicit: `Stop()`/`Dispose()` are idempotent and
+  terminal, `Start()` after dispose throws.
+- File logging writes `beam.log` (human) and `beam-detailed.jsonl` (structured) under
+  `%LOCALAPPDATA%\Beam`; a locked log file never takes the app down.
+
 
 ## [0.1.0] — 2026-10-31
 
