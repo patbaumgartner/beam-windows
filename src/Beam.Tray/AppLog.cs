@@ -31,6 +31,9 @@ internal static class AppLog
     /// <summary>Full path to the machine-readable JSONL log file. Attach this when reporting issues.</summary>
     public static string DetailedLogPath => DetailedFile;
 
+    /// <summary>Directory holding <c>beam.log</c> and <c>beam-detailed.jsonl</c>.</summary>
+    public static string LogDirectory => LogDir;
+
     // ── Public API ─────────────────────────────────────────────────────────
 
     /// <summary>

@@ -25,4 +25,17 @@ internal static class TrayPresentation
     /// <summary>Pause item label: the action the user can take next.</summary>
     public static string PauseItemText(SessionState state) =>
         state == SessionState.Paused ? "Resume Beam" : "Pause Beam";
+
+    /// <summary>
+    /// Whether "Apply projector mode now" is meaningful right now. Only when idle: if a fix
+    /// is already active or in progress (or Beam is paused), applying again is a no-op, so
+    /// the item is disabled to avoid a dead click.
+    /// </summary>
+    public static bool CanApplyNow(SessionState state) => state == SessionState.Idle;
+
+    /// <summary>
+    /// Whether "Restore display" is meaningful right now. Only while a fix is active;
+    /// disabled while restoring (already in progress) or paused.
+    /// </summary>
+    public static bool CanRestore(SessionState state) => state == SessionState.Active;
 }
