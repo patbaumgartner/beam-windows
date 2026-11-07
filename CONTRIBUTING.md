@@ -36,7 +36,7 @@ The repository uses [arc42](docs/03-arc42) documentation and records decisions a
 | `src/Beam.Windows` | Thin Win32/WinRT adapters that implement the Core ports (net10.0-windows) |
 | `src/Beam.Tray` | WinForms tray composition root (`Beam.exe`) |
 | `src/Beam.Cli`  | CLI composition root (`Beam.Cli.exe`, invoked as `beam`) |
-| `tests/` | Six xUnit projects: Core, App, Windows, Tray, CLI, Architecture (330 tests) |
+| `tests/` | Six xUnit projects: Core, App, Windows, Tray, CLI, Architecture (519 tests) |
 | `eng/` | `coverage.ps1` (report + gate) and `check-links.ps1` (Markdown link check) |
 | `spikes/` | Numbered proof-of-concept spikes (S1–S7), incl. `S7.BugRepro` cursor bug proof |
 | `docs/` | Vision, research, use cases, arc42, ADRs, delivery and development notes |

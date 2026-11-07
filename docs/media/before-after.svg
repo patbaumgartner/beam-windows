@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="380" viewBox="0 0 760 380" font-family="Segoe UI, sans-serif">
+  <rect width="760" height="380" fill="#ffffff"/>
+  <text x="380" y="30" text-anchor="middle" font-size="18" font-weight="600" fill="#1f2933">What Beam fixes</text>
+
+  <!-- BEFORE: mirrored 16:10 desktop onto 16:9 projector -->
+  <g>
+    <text x="195" y="60" text-anchor="middle" font-size="13" font-weight="600" fill="#c92a2a">Before — black bars on the projector</text>
+    <rect x="55" y="80" width="280" height="158" fill="#10131a"/>
+    <!-- 16:10 content area cropped/bars: desktop 16:10 shown on 16:9 panel → top/bottom bars -->
+    <rect x="55" y="80" width="280" height="157.5" fill="none"/>
+    <rect x="55" y="80" width="280" height="158" fill="#10131a"/>
+    <!-- content area (16:10 inside 16:9 => bars top+bottom) -->
+    <rect x="55" y="89.4" width="280" height="139.2" fill="#27418c"/>
+    <rect x="75" y="105" width="110" height="10" rx="2" fill="#ffffff" opacity="0.85"/>
+    <rect x="75" y="125" width="180" height="8" rx="2" fill="#ffffff" opacity="0.45"/>
+    <rect x="75" y="143" width="150" height="8" rx="2" fill="#ffffff" opacity="0.45"/>
+    <rect x="75" y="161" width="170" height="8" rx="2" fill="#ffffff" opacity="0.45"/>
+    <!-- bars annotation -->
+    <line x1="345" y1="84" x2="345" y2="88" stroke="#c92a2a"/>
+    <text x="352" y="90" font-size="10" fill="#c92a2a">bar</text>
+    <text x="195" y="258" text-anchor="middle" font-size="11" fill="#5b6b7a">laptop 16:10 desktop mirrored to a 16:9 projector — Windows letterboxes</text>
+  </g>
+
+  <!-- AFTER: shared 16:9 source -->
+  <g>
+    <text x="565" y="60" text-anchor="middle" font-size="13" font-weight="600" fill="#2f9e44">After — full-screen, readable scale</text>
+    <rect x="425" y="80" width="280" height="158" fill="#10131a"/>
+    <rect x="425" y="80" width="280" height="158" fill="#27418c"/>
+    <rect x="445" y="100" width="120" height="10" rx="2" fill="#ffffff" opacity="0.9"/>
+    <rect x="445" y="122" width="200" height="8" rx="2" fill="#ffffff" opacity="0.5"/>
+    <rect x="445" y="140" width="170" height="8" rx="2" fill="#ffffff" opacity="0.5"/>
+    <rect x="445" y="158" width="190" height="8" rx="2" fill="#ffffff" opacity="0.5"/>
+    <rect x="445" y="176" width="150" height="8" rx="2" fill="#ffffff" opacity="0.5"/>
+    <text x="565" y="258" text-anchor="middle" font-size="11" fill="#5b6b7a">shared source set to 16:9, DPI planned so the desktop stays readable</text>
+  </g>
+
+  <!-- Flow strip -->
+  <g font-size="11" fill="#1f2933">
+    <rect x="55" y="300" width="650" height="46" rx="8" fill="#f5f7fa" stroke="#d7dde3"/>
+    <text x="75" y="328">plug in projector</text>
+    <text x="200" y="328">→</text>
+    <text x="225" y="328">Beam detects mirrored aspect mismatch</text>
+    <text x="470" y="328">→</text>
+    <text x="495" y="328">Night Light off · clone 16:9 · DPI planned</text>
+  </g>
+</svg>

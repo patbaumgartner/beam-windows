@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="760" height="400" viewBox="0 0 760 400" font-family="Segoe UI, sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6b7a"/>
+    </marker>
+  </defs>
+  <rect width="760" height="400" fill="#ffffff"/>
+  <text x="380" y="30" text-anchor="middle" font-size="18" font-weight="600" fill="#1f2933">Beam session state machine</text>
+
+  <!-- states -->
+  <g font-size="13" text-anchor="middle">
+    <rect x="40"  y="150" width="96" height="44" rx="22" fill="#e9f7ef" stroke="#2f855a" stroke-width="1.5"/>
+    <text x="88"  y="177" fill="#1f2933">Idle</text>
+
+    <rect x="180" y="150" width="96" height="44" rx="22" fill="#fdf3e3" stroke="#b7791f" stroke-width="1.5"/>
+    <text x="228" y="177" fill="#1f2933">Applying</text>
+
+    <rect x="320" y="150" width="96" height="44" rx="22" fill="#e7f0fb" stroke="#2f6fab" stroke-width="1.5"/>
+    <text x="368" y="177" fill="#1f2933">Active</text>
+
+    <rect x="460" y="150" width="96" height="44" rx="22" fill="#fdf3e3" stroke="#b7791f" stroke-width="1.5"/>
+    <text x="508" y="177" fill="#1f2933">Restoring</text>
+
+    <rect x="620" y="150" width="96" height="44" rx="22" fill="#f5f5f5" stroke="#8a8a8a" stroke-width="1.5"/>
+    <text x="668" y="177" fill="#1f2933">Paused</text>
+  </g>
+
+  <!-- transitions -->
+  <g stroke="#5b6b7a" stroke-width="1.5">
+    <line x1="136" y1="172" x2="178" y2="172" marker-end="url(#a)"/>
+    <line x1="276" y1="172" x2="318" y2="172" marker-end="url(#a)"/>
+    <line x1="416" y1="172" x2="458" y2="172" marker-end="url(#a)"/>
+    <line x1="556" y1="172" x2="618" y2="172" marker-end="url(#a)"/>
+    <!-- Paused loops back above -->
+    <path d="M668 148 C668 70 228 70 228 148" fill="none" marker-end="url(#a)"/>
+  </g>
+
+  <!-- labels -->
+  <g font-size="10.5" fill="#5b6b7a" text-anchor="middle">
+    <text x="157" y="164">trigger met</text>
+    <text x="297" y="164">sequence done</text>
+    <text x="437" y="164">restore requested</text>
+    <text x="587" y="164">restore complete</text>
+    <text x="448" y="82">pause / resume (returns to pre-pause state)</text>
+  </g>
+
+  <!-- footnotes -->
+  <g font-size="11" fill="#5b6b7a">
+    <text x="40" y="260">• Applying and Restoring are transient: error paths unwind to Idle</text>
+    <text x="40" y="280">• Pausing while Active arms the restore: on resume the fix stays applied</text>
+    <text x="40" y="300">• Restore is requested on external-display disconnect while Active</text>
+    <text x="40" y="320">• TryBeginFix runs Idle → Detecting → Applying atomically under a lock</text>
+  </g>
+</svg>

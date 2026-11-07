@@ -54,7 +54,7 @@ portable layers' source for `System.Windows.Forms`, `[DllImport]`, `[LibraryImpo
 **Positive**
 
 - The entire presentation cycle is unit-tested without a projector or a UI thread
-  (330 tests at Phase 1, ~91% line coverage in Core and App).
+  (519 tests at Phase 1, ~96% line coverage in Core and App).
 - PowerToys can lift Core + App without carrying any UI or Win32 code.
 - The tray becomes a thin shell; the CLI shares the same engine.
 - `net10.0` (non-`-windows`) is a compile-time guarantee the portable layers cannot touch a
