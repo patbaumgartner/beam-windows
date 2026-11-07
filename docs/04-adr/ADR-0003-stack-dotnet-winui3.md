@@ -46,14 +46,25 @@ core, upstream compatibility with PowerToys (C#/.NET + C++/WinRT, WinUI 3 settin
 If startup footprint becomes a problem, split into a tiny native tray host + .NET core
 loaded on demand. Not justified now.
 
-## 2026-10-30 addendum — MVP tray is a WinForms shell
+## 2026-11-01 addendum — shipped 0.1.0: net10.0, WinForms tray, Inno Setup, Beam.App
 
-The MVP tray lives in `src/Beam.Tray` (net8.0-windows + WinForms) purely as a shell to
-prove the trigger → fix-sequence → restore wiring end-to-end on real hardware. It holds
-**no domain logic**: everything (Night Light, mode, DPI) lives in Beam.Core/Beam.Windows,
-and only the orchestration (`SessionManager`, `PresentationManager`) is considered — both
-of which are WinUI3-agnostic plain classes usable from the future `Beam.App`.
+The original addendum (2026-10-30) was aspirational. Here is what actually shipped:
 
-`Beam.App` (WinUI 3) replaces `Beam.Tray` before shipping. WinForms was chosen here over
-WinUI3 purely for speed of the spike; the earlier "WinForms — Too dated for settings UX"
-rejection stands for the settings window, not for the throwaway tray host.
+- **Runtime:** .NET 10 (net10.0-windows for Tray/Windows; net10.0 for Core/App; no net8.0).
+- **Tray:** `Beam.Tray` is WinForms, not WinUI 3, and is the permanent composition root for
+  the MVP. It is thin (no domain logic), and the plan to replace it with a WinUI 3 host
+  remains a Phase 2/3 idea, not the 0.1.0 deliverable.
+- **App layer:** `Beam.App` (net10.0) exists as a separate project between Core and Windows,
+  not as a WinUI 3 app. Its `PresentationManager` and `SessionManager` are plain classes that
+  can be hosted by WinForms, a CLI or a future WinUI 3 shell. This is ADR-0014.
+- **Packaging:** Inno Setup (MSIX was planned but deferred; see the roadmap). The tray
+  registers itself in the user's `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` key
+  for startup; no admin, no MSIX.
+- **CLI:** `Beam.Cli` is a composition root that wires the same adapters as the tray; it is
+  a one-shot diagnostic tool, not a pipe client of the tray process.
+- **Ports:** `Beam.Core.Ports` defines five interfaces that `Beam.App` depends on;
+  `Beam.Architecture.Tests` enforces that neither Core nor App can see WinForms or P/Invoke.
+- **No upstream changes yet:** the PowerToys donation path (ADR-0001) is still the long-term
+  goal; the liftable unit is now `Beam.Core + Beam.App` rather than `Beam.Core +
+  Beam.Windows`.
+

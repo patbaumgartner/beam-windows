@@ -37,6 +37,31 @@ public class DependencyRuleTests
             .ToArray();
     }
 
+    private static string AssemblyName(string projectName)
+    {
+        XDocument doc = XDocument.Load(ProjectPath(projectName));
+        string? name = doc.Descendants("AssemblyName").FirstOrDefault()?.Value;
+        return string.IsNullOrWhiteSpace(name) ? projectName : name;
+    }
+
+    /// <summary>
+    /// Both composition roots publish .exe files into the same installer directory. On
+    /// Windows (case-insensitive filesystem) two output names that only differ by case
+    /// would collide, silently overwriting one binary with the other — exactly what
+    /// happened before Beam.Cli was renamed from "beam" to "Beam.Cli". Keep them apart.
+    /// </summary>
+    [Fact]
+    public void CompositionRoots_HaveCaseInsensitivelyDistinctExeNames()
+    {
+        string tray = AssemblyName("Beam.Tray");
+        string cli = AssemblyName("Beam.Cli");
+
+        Assert.False(
+            string.Equals(tray, cli, StringComparison.OrdinalIgnoreCase),
+            $"Installer would overwrite {tray}.exe and {cli}.exe inside one directory on Windows. "
+            + "Give the CLI a distinct AssemblyName (see src/Beam.Cli/Beam.Cli.csproj).");
+    }
+
     [Fact]
     public void Core_HasNoProjectReferences()
     {

@@ -2,8 +2,9 @@
 
 > Plug in. Look right. Every time.
 
-**Status:** Plan accepted by the product owner. Tray MVP + CLI shipped; installer + CI active.
-**Author:** planning session, 2026-10-29
+**Status:** Plan accepted by the product owner. Tray MVP + CLI shipped (0.1.0); the
+presentation engine is decoupled into Core/App/Windows; installer + CI active.
+**Author:** planning session, 2026-10-29 (refactor documented 2026-11-01)
 **Target OS:** Windows 11 (validated against 26H2, build 26300)
 **Target PowerToys:** 0.102.3001.0 (released 2026-10-27)
 
@@ -65,13 +66,18 @@ beam/
   03-arc42/
     01 .. 12                    arc42 chapters
   04-adr/
-    ADR-0001 .. ADR-0013        architecture decisions (status: Proposed)
+    ADR-0001 .. ADR-0014        architecture decisions (status varies: see each ADR)
   05-delivery/
     roadmap.md                  phases, exit criteria, definition of done
     upstream-plan.md            issue text, spec outline, PR sequencing
     test-strategy.md            unit, simulation, hardware matrix
     decisions.md                the product owner's confirmed decisions
     open-questions.md           what is still open
+  06-development/
+    architecture.md             the real dependency rules & runtime sequence
+    testing.md                  how to run tests, fakes, coverage, hardware matrix
+    debugging.md                logs, symptoms, sticky-cursor repro
+    releasing.md                versioning, installer, CI release flow
 ```
 
 ## 5. Suggested review order
