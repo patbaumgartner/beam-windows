@@ -23,6 +23,16 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
 ## [Unreleased]
 
 ### Fixed
+- **DPI step parser crashed on driver-supplied extremes.** `DpiScale.From` called
+  `Math.Abs` on `minRel`, which throws `OverflowException` for `int.MinValue`, and
+  computed `minStep + max` in `int`, which can overflow to a negative ladder index and
+  throw `IndexOutOfRangeException`. Both now reject the impossible input and return
+  null — the fix sequence degrades gracefully instead of crashing.
+- **The tray app could crash at boot when the display config was in flux.**
+  `DisplayMonitor.Start()` captured the initial snapshot without guarding against
+  transient Win32 failures (dock enumerating, driver hiccup). It now starts with no
+  baseline and lets the poll loop establish one, so a failed first capture no longer
+  kills startup.
 - **The context menu no longer looks hung.** Opening the tray menu a second time could leave it
   wearing the shell's busy cursor: WinForms registers its window classes with a null class
   cursor, so once a wait cursor latched (transient UI-thread stall, shell contention) nothing
@@ -92,7 +102,12 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   model, topology ids and trigger condition (`Beam.Core.Tests/DisplayModelTests.cs`).
 - **330 tests** across six test projects (was 100-odd across Core + tray), including a
   guard against composition-root binary name collisions.
-- `DisplayMonitor` lifecycle is now explicit: `Stop()`/`Dispose()` are idempotent and
+- **519 tests** after the deep-testing push: property-style suites (scale planner,
+  topology invariants), an exhaustive single-byte fuzz of the Night Light codec plus
+  500 seeded mutants, exhaustive state-machine matrix tests, error-injection tests for
+  every presentation dependency, journal crash-safety (corrupt/truncated/concurrent),
+  CLI parser adversarial cases, and a no-monitor-connected contract suite covering
+  every command with zero displays attached.- `DisplayMonitor` lifecycle is now explicit: `Stop()`/`Dispose()` are idempotent and
   terminal, `Start()` after dispose throws.
 - Stress and interaction suites: `Beam.App.Tests/StressTests.cs` (burst display changes,
   concurrent `ApplyNow`/`RestoreNow` through the gate, repeated apply→restore cycles,
@@ -107,6 +122,9 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   `Restore display` only while a fix is active — so a click is never a no-op.
 - File logging writes `beam.log` (human) and `beam-detailed.jsonl` (structured) under
   `%LOCALAPPDATA%\Beam`; a locked log file never takes the app down.
+- **Documentation diagrams** (`docs/media/`): architecture layering, session state
+  machine, the tray menu with contextual enable/disable, and a before/after of the
+  black-bar problem — embedded in the README.
 
 
 ## [0.1.0] — 2026-10-31

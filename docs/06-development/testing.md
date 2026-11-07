@@ -14,7 +14,7 @@ Beam's test suite is split along the same lines as the production code. The rule
 | `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, concurrency stress |
 | `tests/Beam.Architecture.Tests` | `net10.0` | Project-reference and portability rules from [architecture.md](architecture.md), composition-root binary-name collision guard |
 
-Current totals: **330 tests**. Run them with:
+Current totals: **519 tests**. Run them with:
 
 ```powershell
 dotnet test Beam.sln -c Release
@@ -38,6 +38,59 @@ struct helpers.
   is testable without a message pump: status/balloon text for every session state, the
   "Pause/Resume Beam" label, the startup Run-key value round-trip, and the cursor-guard
   lifecycle the sticky-cursor fix relies on.
+
+## Deep-testing push (edge, property, fuzz, error injection)
+
+Beyond scenario tests, four suites attack the seams where real-world input is
+untrusted (driver-reported integers, registry bytes, user args) and where faults land:
+
+- **`Beam.Core.Tests/DpiScaleEdgeTests.cs`** — driver-supplied `-3` steps at int
+  extremes. Found and fixed two real crash bugs: `Math.Abs(int.MinValue)` threw
+  `OverflowException`, and `minStep + max` could overflow to a negative ladder index
+  (`IndexOutOfRangeException`). The parser now rejects impossible inputs and returns
+  null instead of throwing, for any `int` triple.
+- **`Beam.Windows.Tests/DisplayMonitorResilienceTests.cs`** — found and fixed a third:
+  `DisplayMonitor.Start()` captured the initial snapshot unguarded, so a transient
+  Win32 failure at boot (dock enumerating, config in flux) crashed the tray app at
+  startup. `Start()` now starts with no baseline and lets the loop establish one.
+- **`Beam.Core.Tests/NightLightCodecFuzzTests.cs`** — exhaustive single-byte corruption
+  of the real 38-byte registry fixture (38 × 255 mutants) plus 500 seeded multi-byte
+  mutants: every mutant either parses or throws `NightLightFormatException` — never any
+  other exception, never a wrong silent parse. Roundtrip + clock-regression epoch
+  monotonicity properties.
+- **`Beam.Core.Tests/ScalePlannerPropertyTests.cs`** — for any pixel width (0 …
+  `uint.MaxValue`) × any ladder range, the chosen scale stays on the ladder and inside
+  the reported range; score overflow and division edge cases locked.
+- **`Beam.Core.Tests/TopologyPropertyTests.cs`** — topology invariants for degenerate
+  inputs: empty path lists, garbage topology ids, inactive paths, zero-size desktops,
+  null modes, and the id-0 fallback contract.
+- **`Beam.Cli.Tests/CommandLineParserEdgeTests.cs`** — near-miss flags (`--Json`,
+  `--night-light`, `---json`…), missing `--device` values, repeated flags; each is
+  rejected or lands in positionals, never silently mis-parsed.
+- **`Beam.Cli.Tests/NoMonitorConnectedTests.cs`** — every command against a zero-display
+  or internal-only topology: no crash, calm messages, correct exit codes (`apply` →
+  `NoProjector`), `restore` still succeeds, Night Light commands work display-less.
+- **`Beam.App.Tests/PresentationErrorInjectionTests.cs`** — each dependency faults at
+  each step: the session never wedges in Applying/Restoring, a failed restore leaves the
+  journal active so the next launch retries recovery, null-constructor guards, dispose
+  stops event reaction.
+- **`Beam.App.Tests/SessionManagerStateMatrixTests.cs`** — from every state, every
+  transition method fires: no wedged transient states, pause/resume always lands in a
+  valid state, event stream carries from/to/reason.
+- **`Beam.App.Tests/JournalCrashSafetyTests.cs`** — corrupt/empty/truncated/`null`
+  journals read as null (never throw), `Clear` removes both files, 8-thread concurrent
+  writes leave a parseable file, rehydrate skips unparseable entries but restores the
+  rest.
+- **`Beam.Core.Tests/PercentileEdgeTests.cs`**, **`StartupCommandEdgeTests.cs`** —
+  NaN/Infinity samples, boundary p, negative latencies; Run-key near-misses, quoting,
+  case-insensitivity, blank/null values.
+
+### What automation still cannot catch
+
+Honest boundary: real Win32 mouse input, actual mode changes on physical monitors, and
+shell tray behaviour need hardware. Those paths are covered by the manual hardware
+matrix below and the `spikes/S7.BugRepro` A/B proof — automation finds logic and
+input-handling bugs; it cannot prove a projector shows pixels.
 
 The WinForms surface itself is deliberately thin: cursor pinning and the shell-facing
 balloon logic are kept in static/pure helpers so the interaction layer stays covered.
@@ -88,11 +141,11 @@ covered if any project exercised it. Current numbers (Release, 2026-11-07):
 
 | Assembly | Lines | Gate |
 |---|---|---|
-| `Beam.Core` | 364 / 400 = 91.0% | ≥ 85% |
-| `Beam.App` | 385 / 423 = 91.0% | ≥ 80% |
-| `Beam.Cli` | 238 / 305 = 78.0% | ≥ 75% |
-| `Beam.Windows` | 95 / 594 = 16.0% | reported only |
-| `Beam.Tray` | 10 / 394 = 2.5% | reported only |
+| `Beam.Core` | 382 / 400 = 95.5% | ≥ 85% |
+| `Beam.App` | 409 / 423 = 96.7% | ≥ 80% |
+| `Beam.Cli` | 247 / 305 = 81.0% | ≥ 75% |
+| `Beam.Windows` | 99 / 598 = 16.6% | reported only |
+| `Beam.Tray` | 12 / 482 = 2.5% | reported only |
 
 Coverage is a regression alarm, not a target. The sequencing and failure-path tests in
 `Beam.App.Tests` matter more than the percentage.
