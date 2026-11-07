@@ -127,7 +127,7 @@ internal static class Program
         using var presentation = new PresentationManager(
             monitor,
             new DisplayInventory(),
-            new DisplayModeController(),
+            new Beam.Windows.Display.DisplayModeController(),
             new WindowsDpiController(),
             new NightLightController(),
             new JournalStore(),
