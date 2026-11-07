@@ -28,6 +28,8 @@ public sealed class TrayService : IDisposable
     private ToolStripMenuItem? _pauseItem;
     private ToolStripMenuItem? _statusItem;
     private ToolStripMenuItem? _startupItem;
+    private ToolStripMenuItem? _applyItem;
+    private ToolStripMenuItem? _restoreItem;
     private ContextMenuStrip? _menu;
     private System.Windows.Forms.Timer? _cursorGuard;
 
@@ -263,24 +265,52 @@ public sealed class TrayService : IDisposable
 
         menu.Items.Add(new ToolStripSeparator());
 
-        // Manual actions.
-        var applyNow = new ToolStripMenuItem("Apply projector mode now");
-        applyNow.Click += (_, _) =>
+        // Manual actions. Enabled state is derived from the session state so a click is
+        // never a no-op (see TrayPresentation.CanApplyNow / CanRestore).
+        _applyItem = new ToolStripMenuItem("Apply projector mode now")
+        {
+            Enabled = TrayPresentation.CanApplyNow(_session.State),
+        };
+        _applyItem.Click += (_, _) =>
         {
             Log.Info("Apply-now requested from tray menu", "Tray",
                 ("state", _session.State.ToString()));
             ApplyNowRequested?.Invoke();
         };
-        menu.Items.Add(applyNow);
+        menu.Items.Add(_applyItem);
 
-        var restoreItem = new ToolStripMenuItem("Restore display");
-        restoreItem.Click += (_, _) =>
+        _restoreItem = new ToolStripMenuItem("Restore display")
+        {
+            Enabled = TrayPresentation.CanRestore(_session.State),
+        };
+        _restoreItem.Click += (_, _) =>
         {
             Log.Info("Restore requested from tray menu", "Tray",
                 ("state", _session.State.ToString()));
             RestoreRequested?.Invoke();
         };
-        menu.Items.Add(restoreItem);
+        menu.Items.Add(_restoreItem);
+
+        menu.Items.Add(new ToolStripSeparator());
+
+        // Supportability: open the log folder so beam-detailed.jsonl can be attached to a
+        // bug report.
+        var logsItem = new ToolStripMenuItem("Open log folder");
+        logsItem.Click += (_, _) =>
+        {
+            Log.Info("Open log folder requested from tray menu", "Tray",
+                ("dir", AppLog.LogDirectory));
+            try
+            {
+                System.Diagnostics.Process.Start("explorer.exe", AppLog.LogDirectory);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Could not open log folder", "Tray", ("error", ex.Message));
+                _icon.ShowBalloonTip(3000, "Beam", "Could not open the log folder.", ToolTipIcon.Warning);
+            }
+        };
+        menu.Items.Add(logsItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -348,6 +378,14 @@ public sealed class TrayService : IDisposable
         if (_pauseItem is not null)
         {
             _pauseItem.Text = PauseItemText(evt.To);
+        }
+        if (_applyItem is not null)
+        {
+            _applyItem.Enabled = TrayPresentation.CanApplyNow(evt.To);
+        }
+        if (_restoreItem is not null)
+        {
+            _restoreItem.Enabled = TrayPresentation.CanRestore(evt.To);
         }
 
         // Tooltip text and balloons both go through Shell_NotifyIcon, which is serviced by
@@ -442,6 +480,14 @@ public sealed class TrayService : IDisposable
         if (_pauseItem is not null)
         {
             _pauseItem.Text = PauseItemText(_session.State);
+        }
+        if (_applyItem is not null)
+        {
+            _applyItem.Enabled = TrayPresentation.CanApplyNow(_session.State);
+        }
+        if (_restoreItem is not null)
+        {
+            _restoreItem.Enabled = TrayPresentation.CanRestore(_session.State);
         }
         if (_startupItem is not null)
         {
