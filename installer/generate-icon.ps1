@@ -1,68 +1,67 @@
 ﻿Add-Type -AssemblyName System.Drawing
 
-# Beam brand — Pantone 638C (#00AED8) and a deeper 638C-tinted outline for light modes.
-$Brand   = [System.Drawing.Color]::FromArgb(0x00, 0xAE, 0xD8)
+# Beam brand — Pantone 638C (#00AED8) fill with a deeper 638C-tinted halo for light modes.
+$Brand     = [System.Drawing.Color]::FromArgb(0x00, 0xAE, 0xD8)
 $BrandDeep = [System.Drawing.Color]::FromArgb(0x00, 0x80, 0xB4)
-$White   = [System.Drawing.Color]::White
 
-function Draw-ProjectorIcon([System.Drawing.Bitmap]$bmp, [int]$size) {
+# The brand mark: "high beam" icon by I Create Stuff from The Noun Project (CC BY 3.0 —
+# see ..\assets\ATTRIBUTION.md), stored unmodified as a black silhouette with alpha.
+# It is tinted at draw time via a colour matrix so the repo asset stays the upstream art.
+$markPath = Join-Path $PSScriptRoot "..\src\Beam.Tray\Assets\high-beam.png"
+$mark = [System.Drawing.Bitmap]::new($markPath)
+
+function Get-TintAttributes([System.Drawing.Color]$color) {
+    # Identity matrix with constant RGB offsets and alpha passed through.
+    $cm = [System.Drawing.Imaging.ColorMatrix]::new()
+    $cm.Matrix04 = $color.R / 255.0
+    $cm.Matrix14 = $color.G / 255.0
+    $cm.Matrix24 = $color.B / 255.0
+    $ia = [System.Drawing.Imaging.ImageAttributes]::new()
+    $ia.SetColorMatrix($cm)
+    return $ia
+}
+
+$brandAttr = Get-TintAttributes $Brand
+$haloAttr  = Get-TintAttributes $BrandDeep
+
+function Draw-TintedMark([System.Drawing.Graphics]$g, [System.Drawing.Image]$img, [System.Drawing.RectangleF]$dest, [System.Drawing.RectangleF]$src, [System.Drawing.Imaging.ImageAttributes]$attr) {
+    # Graphics.DrawImage has no (Image, RectangleF, RectangleF, GraphicsUnit, ImageAttributes)
+    # overload, and pwsh mis-binds a RectangleF destination to the Point[] variants — so pass
+    # the destination as the 3-point parallelogram (top-left, top-right, bottom-left).
+    $pts = [System.Drawing.PointF[]]@(
+        [System.Drawing.PointF]::new($dest.X, $dest.Y),
+        [System.Drawing.PointF]::new($dest.X + $dest.Width, $dest.Y),
+        [System.Drawing.PointF]::new($dest.X, $dest.Y + $dest.Height))
+    $g.DrawImage($img, $pts, $src, [System.Drawing.GraphicsUnit]::Pixel, $attr)
+}
+
+function Draw-BeamIcon([System.Drawing.Bitmap]$bmp, [int]$size) {
     $g = [System.Drawing.Graphics]::FromImage($bmp)
     $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+    $g.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
+    $g.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
     $g.Clear([System.Drawing.Color]::Transparent)
 
-    $brandBrush = New-Object System.Drawing.SolidBrush $Brand
-    $deepBrush  = New-Object System.Drawing.SolidBrush $BrandDeep
-    $whiteBrush = New-Object System.Drawing.SolidBrush $White
+    $srcRect = [System.Drawing.RectangleF]::new(0, 0, $mark.Width, $mark.Height)
 
-    # Beam cone — a filled polygon from the emitter (right) widening to the left.
-    $cx1 = [float]($size * 0.80); $cy1 = [float]($size * 0.42)
-    $cx2 = [float]($size * 0.80); $cy2 = [float]($size * 0.58)
-    $cx3 = [float]($size * 0.04); $cy3 = [float]($size * 0.88)
-    $cx4 = [float]($size * 0.04); $cy4 = [float]($size * 0.12)
-    $cone = [System.Drawing.PointF[]]@(
-        (New-Object System.Drawing.PointF($cx1, $cy1)),
-        (New-Object System.Drawing.PointF($cx2, $cy2)),
-        (New-Object System.Drawing.PointF($cx3, $cy3)),
-        (New-Object System.Drawing.PointF($cx4, $cy4))
-    )
-    $g.FillPolygon($brandBrush, $cone)
+    # Halo — the silhouette drawn ~8% larger in the deep edge colour, centred, so the
+    # mark separates from pale (light-mode) taskbars.
+    $halo = [float]($size * 1.08)
+    $haloRect = [System.Drawing.RectangleF]::new((($size - $halo) / 2), (($size - $halo) / 2), $halo, $halo)
+    Draw-TintedMark $g $mark $haloRect $srcRect $haloAttr
 
-    # Deep outline so the cone separates from pale (light-mode) taskbars.
-    $outline = New-Object System.Drawing.Pen $BrandDeep, ([float]([Math]::Max(1, $size * 0.05)))
-    $outline.LineJoin = [System.Drawing.Drawing2D.LineJoin]::Round
-    $g.DrawPolygon($outline, $cone)
+    # Brand fill — Pantone 638C.
+    $rect = [System.Drawing.RectangleF]::new(0, 0, $size, $size)
+    Draw-TintedMark $g $mark $rect $srcRect $brandAttr
 
-    # White hot core — the inner bright ray that carries the mark on dark taskbars.
-    $kx1 = [float]($size * 0.60); $ky1 = [float]($size * 0.47)
-    $kx2 = [float]($size * 0.60); $ky2 = [float]($size * 0.53)
-    $kx3 = [float]($size * 0.06); $ky3 = [float]($size * 0.68)
-    $kx4 = [float]($size * 0.06); $ky4 = [float]($size * 0.32)
-    $core = [System.Drawing.PointF[]]@(
-        (New-Object System.Drawing.PointF($kx1, $ky1)),
-        (New-Object System.Drawing.PointF($kx2, $ky2)),
-        (New-Object System.Drawing.PointF($kx3, $ky3)),
-        (New-Object System.Drawing.PointF($kx4, $ky4))
-    )
-    $g.FillPolygon($whiteBrush, $core)
-
-    # Hotspot at the emitter — the lens.
-    $lensR = [float]($size * 0.11)
-    $lensX = [float]($size * 0.82)
-    $lensY = [float]($size * 0.50)
-    $g.FillEllipse($deepBrush,  ($lensX - $lensR), ($lensY - $lensR), ($lensR * 2), ($lensR * 2))
-    $g.FillEllipse($whiteBrush, ($lensX - $lensR * 0.45), ($lensY - $lensR * 0.45), ($lensR * 0.9), ($lensR * 0.9))
-
-    $brandBrush.Dispose(); $deepBrush.Dispose(); $whiteBrush.Dispose(); $outline.Dispose()
     $g.Dispose()
 }
 
 $sizes = @(16, 20, 24, 32, 40, 48, 64, 128, 256)
 $images = @()
-$dir = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "beamico")
-New-Item -ItemType Directory -Force -Path $dir | Out-Null
 foreach ($s in $sizes) {
-    $bmp = New-Object System.Drawing.Bitmap($s, $s, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-    Draw-ProjectorIcon $bmp $s
+    $bmp = [System.Drawing.Bitmap]::new($s, $s, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
+    Draw-BeamIcon $bmp $s
     $ms = New-Object System.IO.MemoryStream
     $bmp.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png)
     $png = $ms.ToArray()

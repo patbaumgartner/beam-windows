@@ -1,5 +1,7 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
 using Beam.App.Sessions;
@@ -120,7 +122,7 @@ public sealed class TrayService : IDisposable
         g.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
         g.Clear(Color.Transparent);
 
-        DrawProjectorIcon(g, sizePx);
+        DrawBeamIcon(g, sizePx);
 
         // Icon.FromHandle creates an icon that wraps the GDI handle without owning it.
         // Clone so the NotifyIcon holds its own managed icon, then destroy the temporary
@@ -159,54 +161,67 @@ public sealed class TrayService : IDisposable
     }
 
     /// <summary>
-    /// Draws the Beam laser icon into the given graphics context.
-    ///
-    /// The mark is a stylised laser: a compact emitter on the right whose beam widens into
-    /// a cone to the left — the classic laser hazard mark, restyled in the brand colour. It
-    /// reads on both light and dark taskbars: the Pantone 638C cone with a deep-blue edge
-    /// carries the shape on light backgrounds, and the bright white core carries it on dark
-    /// ones. A filled cone (rather than thin lines) survives downscaling to shell sizes.
+    /// The Beam brand mark — the "high beam" headlight icon by I Create Stuff from
+    /// The Noun Project (CC BY 3.0; see assets/ATTRIBUTION.md) — as a black silhouette
+    /// with an alpha channel, loaded once from the embedded resources.
     /// </summary>
-    private static void DrawProjectorIcon(Graphics g, int size)
+    private static readonly Lazy<Bitmap> BrandMark = new(LoadBrandMark);
+
+    private static Bitmap LoadBrandMark()
     {
-        // Brand palette — Pantone 638C (#00AED8) with a deeper 638C-tinted outline so the
-        // mark stays legible on light backgrounds, plus a white hot core for dark ones.
-        using var brand = new SolidBrush(Color.FromArgb(0x00, 0xAE, 0xD8));
-        using var brandDeep = new SolidBrush(Color.FromArgb(0x00, 0x80, 0xB4));
+        using var stream = Assembly.GetExecutingAssembly()
+            .GetManifestResourceStream("Beam.Tray.Assets.high-beam.png")
+            ?? throw new InvalidOperationException(
+                "Embedded resource 'Beam.Tray.Assets.high-beam.png' is missing.");
+        return new Bitmap(stream);
+    }
 
-        // Beam cone — a filled triangle from the emitter (right) widening to the left.
-        var cone = new[]
+    // Solid-tint attributes for recoloring the black silhouette while keeping its alpha:
+    // the colour matrix outputs a constant RGB per channel and passes alpha through.
+    private static readonly ImageAttributes BrandTint =
+        TintAttributes(Color.FromArgb(0x00, 0xAE, 0xD8)); // Pantone 638C
+    private static readonly ImageAttributes HaloTint =
+        TintAttributes(Color.FromArgb(0x00, 0x80, 0xB4)); // deeper 638C-tinted edge
+
+    private static ImageAttributes TintAttributes(Color color)
+    {
+        var matrix = new ColorMatrix
         {
-            new PointF(size * 0.80f, size * 0.42f), // emitter top
-            new PointF(size * 0.80f, size * 0.58f), // emitter bottom
-            new PointF(size * 0.04f, size * 0.88f), // far bottom
-            new PointF(size * 0.04f, size * 0.12f), // far top
+            Matrix04 = color.R / 255f,
+            Matrix14 = color.G / 255f,
+            Matrix24 = color.B / 255f,
+            Matrix33 = 1f,
+            Matrix44 = 1f,
         };
-        g.FillPolygon(brand, cone);
+        var attributes = new ImageAttributes();
+        attributes.SetColorMatrix(matrix);
+        return attributes;
+    }
 
-        // Deep outline on the trailing interior so the cone separates from pale taskbars.
-        using var outline = new Pen(Color.FromArgb(0x00, 0x80, 0xB4), Math.Max(1f, size * 0.05f))
-        {
-            LineJoin = LineJoin.Round,
-        };
-        g.DrawPolygon(outline, cone);
+    /// <summary>
+    /// Draws the Beam high-beam icon into the given graphics context.
+    ///
+    /// The mark (see <see cref="BrandMark"/>) is tinted at draw time: a deep-blue halo —
+    /// the silhouette scaled up slightly — sits behind the Pantone 638C fill so the mark
+    /// separates from pale (light-mode) taskbars, while the bright fill carries it on dark
+    /// ones.
+    /// </summary>
+    private static void DrawBeamIcon(Graphics g, int size)
+    {
+        var mark = BrandMark.Value;
 
-        // White hot core — the inner bright ray that carries the mark on dark taskbars.
-        var core = new[]
-        {
-            new PointF(size * 0.60f, size * 0.47f),
-            new PointF(size * 0.60f, size * 0.53f),
-            new PointF(size * 0.06f, size * 0.68f),
-            new PointF(size * 0.06f, size * 0.32f),
-        };
-        g.FillPolygon((Brush)Brushes.White, core);
+        g.InterpolationMode = InterpolationMode.HighQualityBicubic;
+        g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-        // Hotspot at the emitter — the lens.
-        float lensR = size * 0.11f;
-        float lensX = size * 0.82f;
-        float lensY = size * 0.5f;
-        g.FillEllipse(brandDeep, lensX - lensR, lensY - lensR, lensR * 2, lensR * 2);
-        g.FillEllipse(Brushes.White, lensX - lensR * 0.45f, lensY - lensR * 0.45f, lensR * 0.9f, lensR * 0.9f);
+        // Halo — the silhouette drawn ~8% larger in the deep edge colour, centred.
+        float haloSize = size * 1.08f;
+        var haloRect = new Rectangle(
+            (int)((size - haloSize) / 2f), (int)((size - haloSize) / 2f), (int)haloSize, (int)haloSize);
+        g.DrawImage(mark, haloRect, 0, 0, mark.Width, mark.Height, GraphicsUnit.Pixel, HaloTint);
+
+        // Brand fill — Pantone 638C.
+        var rect = new Rectangle(0, 0, size, size);
+        g.DrawImage(mark, rect, 0, 0, mark.Width, mark.Height, GraphicsUnit.Pixel, BrandTint);
     }
 
     private ContextMenuStrip BuildMenu()
