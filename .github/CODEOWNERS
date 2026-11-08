@@ -1,0 +1,9 @@
+# Code owners — who reviews what.
+# In practice: everything goes through @patbaumgartner until a second maintainer joins.
+* @patbaumgartner
+
+# Sensitive surfaces need an extra careful review:
+/src/Beam.Windows/    @patbaumgartner   # Win32/CCD/DPI/Night Light adapters
+/src/Beam.Tray/       @patbaumgartner   # WinForms composition root
+/installer/           @patbaumgartner   # Inno Setup script
+/.github/workflows/  @patbaumgartner   # CI + release pipelines

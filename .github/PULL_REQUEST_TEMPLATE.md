@@ -1,26 +1,18 @@
----
-name: Pull Request
-about: A change to Beam
-title: ''
-labels: ''
-assignees: ''
----
+<!-- Thanks for contributing to Beam! -->
 
-## What does this do?
+## What changed?
 
-<!-- Short, imperative description of the change and why. -->
+<!-- One or two sentences. Conventional commit style is used on `main` (feat:/fix:/docs:/test:/chore:). -->
 
-## Related issue(s)
+## How was it tested?
 
-<!-- Closes #123 -->
+- [ ] `dotnet test Beam.sln` — all green
+- [ ] `dotnet format Beam.sln --verify-no-changes` — clean
+- [ ] `pwsh eng/check-links.ps1` — links resolve
+- [ ] Manual check on real hardware if the change touches displays, DPI, Night Light, or the tray UI (note what you ran)
 
-## How was this tested?
+## Scope guardrails
 
-- [ ] `dotnet build Beam.sln` clean
-- [ ] `dotnet test Beam.sln` passes
-- [ ] `beam status` / `beam apply --dry-run` verified on hardware
-- [ ] Docs updated for user-visible changes
-
-## Notes
-
-<!-- Anything reviewers should know: API changes, migration notes, follow-ups. -->
+- [ ] The change never leaves a display in an unsupported/broken mode and always restores exactly (mode, DPI, Night Light bytes)
+- [ ] No admin rights required; per-user only
+- [ ] Docs updated if behaviour changes (`README.md`, `docs/`, `CHANGELOG.md`)
