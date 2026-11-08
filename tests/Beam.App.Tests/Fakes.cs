@@ -49,6 +49,15 @@ internal static class Topologies
         },
         DisplayTopologyId.Clone);
 
+    /// <summary>Mirrored topology after a successful fix: 16:9 shared desktop, no mismatch.</summary>
+    public static DisplayTopology CloneFixed16x9() => new(
+        new[]
+        {
+            Path(0, 1, "Laptop", isInternal: true, active: true, 1920, 1080, 1920, 1080),
+            Path(1, 2, "DELL", isInternal: false, active: true, 1920, 1080, 1920, 1080),
+        },
+        DisplayTopologyId.Clone);
+
     public static DisplayTopology Extended() => new(
         new[]
         {
@@ -99,9 +108,17 @@ internal sealed class FakeModeController : IDisplayModeController
     public int ApplyCalls { get; private set; }
     public int RestoreCalls { get; private set; }
 
+    /// <summary>Hook run after a successful apply; tests use it to flip the fake topology.</summary>
+    public Action? OnApply { get; set; }
+
     public string? ApplyCloneWith16x9()
     {
         ApplyCalls++;
+        if (ApplyResult is null)
+        {
+            OnApply?.Invoke();
+        }
+
         return ApplyResult;
     }
 
@@ -184,7 +201,7 @@ internal sealed class FakeJournalStore : IJournalStore
 /// <summary>A ready-to-use presentation manager plus the fakes it was built from.</summary>
 internal sealed class PresentationHarness : IDisposable
 {
-    public PresentationHarness(DisplayTopology topology, DpiScale? dpi = null)
+    public PresentationHarness(DisplayTopology topology, DpiScale? dpi = null, Func<DateTimeOffset>? clock = null, TimeSpan? selfChangeWindow = null)
     {
         Topology.Topology = topology;
         Dpi.ReadResult = dpi;
@@ -196,7 +213,13 @@ internal sealed class PresentationHarness : IDisposable
             Dpi,
             NightLight,
             Journal,
-            Session);
+            Session,
+            selfChangeWindow: selfChangeWindow,
+            clock: clock);
+
+        // A successful mode apply resolves the mismatch: the fake topology flips to the
+        // fixed 16:9 clone so the manager's verify-after-mode step can observe it.
+        Mode.OnApply = () => Topology.Topology = Topologies.CloneFixed16x9();
     }
 
     public FakeChangeSource Changes { get; } = new();

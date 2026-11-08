@@ -88,15 +88,19 @@ public class PresentationOrchestrationTests
     }
 
     [Fact]
-    public async Task ApplyNow_WithModeError_StillBecomesActive()
+    public async Task ApplyNow_WithModeError_UnwindsViaRestore_NotActive()
     {
         using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
         h.Mode.ApplyResult = "mode rejected";
 
         await h.Manager.ApplyNowAsync();
 
-        // The mode change is best-effort; the session still owns a restore path.
-        Assert.Equal(SessionState.Active, h.Session.State);
+        // UC-12: a failed mode apply must not leave a half-applied session — unwind via
+        // restore and return to Idle. One failure is below the safe-mode threshold.
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(1, h.Mode.ApplyCalls);
+        Assert.Equal(1, h.Mode.RestoreCalls);
+        Assert.False(h.Manager.IsSafeMode);
     }
 
     [Fact]
