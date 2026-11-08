@@ -148,6 +148,14 @@ public sealed class DisplayModeController : IDisplayModeController
         ranked.Take(MaxCandidates).ToList();
 
     /// <summary>
+    /// Picks the restore topology flag from the live active-path count: EXTEND with two or
+    /// more displays, INTERNAL with a single one (the OS rejects EXTEND with error 31 there).
+    /// Pure helper, unit tested.
+    /// </summary>
+    internal static uint RestoreTopologyFlag(int activePathCount) =>
+        activePathCount > 1 ? SdcTopologyExtend : SdcTopologyInternal;
+
+    /// <summary>
     /// Ranks 16:9 modes: highest pixels first, then 60 Hz over 30 Hz, then highest refresh.
     /// Pure helper so the ranking can be unit tested.
     /// </summary>
@@ -171,20 +179,25 @@ public sealed class DisplayModeController : IDisplayModeController
     {
         var sw = Stopwatch.StartNew();
 
-        Log.Info("Restore: returning to extended topology", "DisplayMode");
+        Log.Info("Restore: returning to the OS's default topology", "DisplayMode");
 
-        // Return to the OS's default extended topology.
-        int err = SetDisplayConfig(0, null, 0, null, SdcTopologyExtend | SdcApply);
+        // With a single active display, EXTEND is rejected by the OS (Win32 error 31);
+        // the correct topology for one display is INTERNAL. Pick the flag from the
+        // live path count instead of assuming two displays.
+        uint topologyFlag = RestoreTopologyFlag(_inventory.Query().ActivePaths.Count);
+        int err = SetDisplayConfig(0, null, 0, null, topologyFlag | SdcApply);
         if (err != ErrorSuccess)
         {
             sw.Stop();
-            Log.Error("SetDisplayConfig(TOPOLOGY_EXTEND) failed", "DisplayMode",
+            Log.Error("SetDisplayConfig restore topology failed", "DisplayMode",
+                ("topologyFlag", topologyFlag.ToString("X")),
                 ("win32Error", err.ToString()),
                 ("elapsedMs", sw.ElapsedMilliseconds.ToString()));
-            return $"SetDisplayConfig(TOPOLOGY_EXTEND) failed: Win32 error {err}.";
+            return $"SetDisplayConfig(topology 0x{topologyFlag:X}) failed: Win32 error {err}.";
         }
 
-        Log.Info("Extended topology applied, waiting for OS to settle", "DisplayMode",
+        Log.Info("Restore topology applied, waiting for OS to settle", "DisplayMode",
+            ("topologyFlag", topologyFlag.ToString("X")),
             ("settleMs", 1500.ToString()));
         Thread.Sleep(1500);
 
