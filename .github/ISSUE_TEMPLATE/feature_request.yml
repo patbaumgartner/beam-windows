@@ -1,21 +1,38 @@
----
 name: Feature request
-about: Suggest an idea for Beam
-title: ''
-labels: enhancement
-assignees: ''
----
-
-**Is your feature request related to a problem?**
-A clear and concise description of what the problem is. Ex. *"When I present on a 16:10
-laptop the text is tiny…"*
-
-**Describe the solution you'd like**
-A clear and concise description of what you want to happen.
-
-**Describe alternatives you've considered**
-A clear and concise description of any alternative solutions or features you've considered.
-
-**Additional context**
-Add any other context or screenshots here. Note: Beam's engine is being donated to
-PowerToys, so APIs must stay inside `Beam.Core` with no Windows dependency.
+description: Suggest an improvement or a new use case for Beam.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Beam's scope is deliberately small: a correct, safe presentation state when an
+        external display is connected, with exact restore on disconnect. Ideas that fit
+        that scope (or the PowerToys upstream plan in `docs/05-delivery/upstream-plan.md`)
+        are very welcome.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do today that Beam doesn't handle?
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: What should Beam do, and when (trigger, action, restore)?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: PowerToys settings, Windows display settings, scripts — and why they fall short.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This keeps the "never leaves a display in a broken state, always restores exactly" guarantee
+          required: true
