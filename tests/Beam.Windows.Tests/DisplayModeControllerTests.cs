@@ -86,4 +86,20 @@ public class DisplayModeControllerTests
         Assert.Equal(2, DisplayModeController.BoundedCandidates(modes).Count);
         Assert.Empty(DisplayModeController.BoundedCandidates(Array.Empty<DisplayMode>()));
     }
+
+    [Fact]
+    public void RestoreTopologyFlag_ExtendWithTwoOrMoreDisplays()
+    {
+        // Found on real hardware: the OS rejects EXTEND with Win32 error 31 when only
+        // one display is active, so restore must pick INTERNAL there.
+        Assert.Equal(DisplayNative.SdcTopologyExtend, DisplayModeController.RestoreTopologyFlag(2));
+        Assert.Equal(DisplayNative.SdcTopologyExtend, DisplayModeController.RestoreTopologyFlag(4));
+    }
+
+    [Fact]
+    public void RestoreTopologyFlag_InternalForSingleDisplay()
+    {
+        Assert.Equal(DisplayNative.SdcTopologyInternal, DisplayModeController.RestoreTopologyFlag(1));
+        Assert.Equal(DisplayNative.SdcTopologyInternal, DisplayModeController.RestoreTopologyFlag(0));
+    }
 }
