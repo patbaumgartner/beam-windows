@@ -28,6 +28,12 @@ namespace Beam.App.Presentation;
 /// </remarks>
 public sealed class PresentationManager : IDisposable
 {
+    /// <summary>UC-12 rule 11: after this many consecutive failed fix sequences, enter safe mode.</summary>
+    public const int MaxConsecutiveFailures = 2;
+
+    /// <summary>UC-12 rule 8: ignore display-change events this long after our own mutation.</summary>
+    public static readonly TimeSpan DefaultSelfChangeWindow = TimeSpan.FromSeconds(3);
+
     private readonly IDisplayChangeSource _changes;
     private readonly ITopologySource _topology;
     private readonly IDisplayModeController _mode;
@@ -35,11 +41,18 @@ public sealed class PresentationManager : IDisposable
     private readonly INightLightController _nightLight;
     private readonly IJournalStore _journal;
     private readonly SessionManager _session;
+    private readonly TimeSpan _selfChangeWindow;
+    private readonly Func<DateTimeOffset> _clock;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<NightLightSnapshot>? _nightLightSnapshot;
     private Task _pending = Task.CompletedTask;
+    private DateTimeOffset _lastOwnMutationUtc = DateTimeOffset.MinValue;
+    private int _consecutiveFailures;
     private bool _disposed;
+
+    /// <summary>Raised when safe mode is entered or cleared (UC-12 AC5: must be visible).</summary>
+    public event Action<bool>? SafeModeChanged;
 
     public PresentationManager(
         IDisplayChangeSource changes,
@@ -48,7 +61,9 @@ public sealed class PresentationManager : IDisposable
         IDpiController dpi,
         INightLightController nightLight,
         IJournalStore journal,
-        SessionManager session)
+        SessionManager session,
+        TimeSpan? selfChangeWindow = null,
+        Func<DateTimeOffset>? clock = null)
     {
         _changes = changes ?? throw new ArgumentNullException(nameof(changes));
         _topology = topology ?? throw new ArgumentNullException(nameof(topology));
@@ -57,9 +72,17 @@ public sealed class PresentationManager : IDisposable
         _nightLight = nightLight ?? throw new ArgumentNullException(nameof(nightLight));
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _session = session ?? throw new ArgumentNullException(nameof(session));
+        _selfChangeWindow = selfChangeWindow ?? DefaultSelfChangeWindow;
+        _clock = clock ?? (() => DateTimeOffset.UtcNow);
 
         _changes.Changed += OnDisplayChanged;
     }
+
+    /// <summary>UC-12 rule 11: true after <see cref="MaxConsecutiveFailures"/> consecutive failed fixes.</summary>
+    public bool IsSafeMode => _consecutiveFailures >= MaxConsecutiveFailures;
+
+    /// <summary>Diagnostics/manual-retry escape hatch: clears safe mode and the failure count.</summary>
+    public void ClearSafeMode() => NoteSuccess("manual clear");
 
     /// <summary>The most recent sequence task. Tests await this for determinism.</summary>
     public Task PendingTask => _pending;
@@ -133,6 +156,16 @@ public sealed class PresentationManager : IDisposable
             return;
         }
 
+        // UC-12 rule 8: a change we caused ourselves (mode/DPI write re-enumerates paths)
+        // must not re-trigger the fix loop. The disconnect→restore path above is a safety
+        // path and is deliberately never suppressed by this window.
+        if (_clock() - _lastOwnMutationUtc < _selfChangeWindow)
+        {
+            Log.Info("Display change within self-change window — suppressed.", "Monitor",
+                ("windowMs", _selfChangeWindow.TotalMilliseconds.ToString()));
+            return;
+        }
+
         DisplayTopology topology = _topology.Query();
         bool triggerMet = TriggerCondition.IsMet(topology);
 
@@ -148,6 +181,14 @@ public sealed class PresentationManager : IDisposable
 
         if (triggerMet && state is SessionState.Idle)
         {
+            // UC-12 rule 11: in safe mode no automatic mutations; manual retry stays available.
+            if (IsSafeMode)
+            {
+                Log.Warn("Safe mode active — not auto-applying. Use ApplyNow/diagnostics to retry.", "Monitor",
+                    ("consecutiveFailures", _consecutiveFailures.ToString()));
+                return;
+            }
+
             Log.Info("Trigger met and session idle — starting fix sequence.", "Monitor",
                 ("evaluationMs", sw.ElapsedMilliseconds.ToString()));
             await RunExclusiveAsync(FixSequenceAsync).ConfigureAwait(false);
@@ -200,6 +241,14 @@ public sealed class PresentationManager : IDisposable
     {
         if (_session.State != SessionState.Idle)
         {
+            return Task.CompletedTask;
+        }
+
+        // UC-12 rule 11: safe mode blocks automatic applies, including the startup check.
+        if (IsSafeMode)
+        {
+            Log.Warn("Startup state check: safe mode active — not auto-applying. Use ApplyNow to retry.", "Startup",
+                ("consecutiveFailures", _consecutiveFailures.ToString()));
             return Task.CompletedTask;
         }
 
@@ -261,6 +310,7 @@ public sealed class PresentationManager : IDisposable
             _journal.BeginApply("fix-sequence-started", _nightLightSnapshot);
 
             NightLightWriteResult nlResult = _nightLight.SetActive(active: false);
+            MarkOwnMutation();
             Log.Info("Night Light set-off result", "Fix",
                 ("step", "nightLight"),
                 ("success", nlResult.Success.ToString()),
@@ -272,24 +322,36 @@ public sealed class PresentationManager : IDisposable
             LogTopology("Topology before mode change", "Fix", _topology.Query());
 
             string? modeError = _mode.ApplyCloneWith16x9();
+            MarkOwnMutation();
 
-            LogTopology("Topology after mode change", "Fix", _topology.Query());
+            // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
+            if (modeError is null && TriggerCondition.IsMet(_topology.Query()))
+            {
+                modeError = "verify-after-mode failed: mirror aspect mismatch still present after apply";
+            }
+
+            LogTopology("Topology after mode change", "Fix", _topology.Query(), modeError);
 
             if (modeError is not null)
             {
-                Log.Warn("Display mode error (best-effort; proceeding to DPI)", "Fix",
+                // UC-12 rules 4/13: never stay half-applied. Unwind everything via restore.
+                Log.Warn("Fix failed at display mode — unwinding via restore.", "Fix",
                     ("step", "displayMode"),
                     ("error", modeError));
+                NoteFailure(modeError);
+                _session.RequestRestore();
+                await RestoreSequenceAsync().ConfigureAwait(false);
+                return;
             }
-            else
-            {
-                Log.Info("Display mode applied successfully", "Fix", ("step", "displayMode"));
-            }
+
+            Log.Info("Display mode applied and verified", "Fix", ("step", "displayMode"));
 
             // Step 3: readable DPI on the shared source.
             ApplyDpi();
+            MarkOwnMutation();
 
             _session.MarkActive();
+            NoteSuccess("fix sequence complete");
             overall.Stop();
             Log.Info("Fix sequence complete — session is now Active", "Fix",
                 ("totalMs", overall.ElapsedMilliseconds.ToString()));
@@ -298,6 +360,7 @@ public sealed class PresentationManager : IDisposable
         {
             overall.Stop();
             Log.Exception(ex, "Fix", ("step", "unknown"));
+            NoteFailure(ex.Message);
             _session.RequestRestore();
             await RestoreSequenceAsync().ConfigureAwait(false);
         }
@@ -410,6 +473,7 @@ public sealed class PresentationManager : IDisposable
                     ("step", "nightLight"));
             }
 
+            MarkOwnMutation();
             _nightLightSnapshot = null;
             _journal.Clear();
             _session.MarkIdle();
@@ -429,6 +493,42 @@ public sealed class PresentationManager : IDisposable
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
+
+    /// <summary>UC-12 rule 8: records that Beam itself just mutated the display stack.</summary>
+    private void MarkOwnMutation() => _lastOwnMutationUtc = _clock();
+
+    /// <summary>UC-12 rule 11: counts a failed fix; enters safe mode at the threshold.</summary>
+    private void NoteFailure(string reason)
+    {
+        _consecutiveFailures++;
+        bool safeMode = IsSafeMode;
+        Log.Warn("Fix failure recorded", "Fix",
+            ("reason", reason),
+            ("consecutiveFailures", _consecutiveFailures.ToString()),
+            ("safeMode", safeMode.ToString()));
+        if (safeMode)
+        {
+            SafeModeChanged?.Invoke(true);
+        }
+    }
+
+    /// <summary>Clears the failure streak; leaves safe mode if it was active.</summary>
+    private void NoteSuccess(string reason)
+    {
+        bool wasSafeMode = IsSafeMode;
+        if (_consecutiveFailures > 0)
+        {
+            Log.Info("Failure streak cleared", "Fix",
+                ("reason", reason),
+                ("wasSafeMode", wasSafeMode.ToString()));
+        }
+
+        _consecutiveFailures = 0;
+        if (wasSafeMode)
+        {
+            SafeModeChanged?.Invoke(false);
+        }
+    }
 
     private static void LogTopology(
         string message,

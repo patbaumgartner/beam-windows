@@ -15,6 +15,9 @@ namespace Beam.Windows.Display;
 /// </summary>
 public sealed class DisplayModeController : IDisplayModeController
 {
+    /// <summary>UC-12 rule 5: at most this many mode candidates are tried per apply.</summary>
+    internal const int MaxCandidates = 3;
+
     private readonly ITopologySource _inventory = new DisplayInventory();
     private readonly List<DevModeSnapshot> _snapshots = new();
 
@@ -86,7 +89,9 @@ public sealed class DisplayModeController : IDisplayModeController
     private string? TrySet16x9(string gdi)
     {
         // Pick the best 16:9 mode the display actually supports instead of hard-coding.
-        IReadOnlyList<DisplayMode> ranked = SelectBest16x9(gdi);
+        // UC-12 rule 5: bounded to MaxCandidates attempts so a flaky driver cannot
+        // keep us mutating forever.
+        IReadOnlyList<DisplayMode> ranked = BoundedCandidates(SelectBest16x9(gdi));
 
         Log.Info("Ranking 16:9 modes for shared source", "DisplayMode",
             ("gdiName", gdi),
@@ -124,11 +129,11 @@ public sealed class DisplayModeController : IDisplayModeController
                     return null; // Success.
                 }
 
-                Log.Warn("CDS apply failed", "DisplayMode",
+                // UC-12 rule 5: a rejected apply is not fatal — try the next candidate.
+                Log.Warn("CDS apply failed — trying next candidate", "DisplayMode",
                     ("gdiName", gdi),
                     ("mode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"),
                     ("result", cds.ToString()));
-                return $"CDS apply at {mode} failed: code {cds}.";
             }
         }
 
@@ -137,6 +142,10 @@ public sealed class DisplayModeController : IDisplayModeController
             ("triedModes", ranked.Count.ToString()));
         return "No supported 16:9 mode found for the shared source.";
     }
+
+    /// <summary>UC-12 rule 5: bounds the ranked candidate list. Pure helper, unit tested.</summary>
+    internal static IReadOnlyList<DisplayMode> BoundedCandidates(IEnumerable<DisplayMode> ranked) =>
+        ranked.Take(MaxCandidates).ToList();
 
     /// <summary>
     /// Ranks 16:9 modes: highest pixels first, then 60 Hz over 30 Hz, then highest refresh.
