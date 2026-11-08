@@ -134,7 +134,12 @@ jobs:
           }
 
           Write-Host "ISCC: $isccPath"
-          & "$isccPath" /DOutputDir="$PWD\nightly" installer\Beam.iss
+          # Single source of truth for the version is Directory.Build.props, so the
+          # snapshot installer can never drift from the binaries it ships.
+          $props = [xml](Get-Content Directory.Build.props)
+          $v = $props.Project.PropertyGroup.Version
+          Write-Host "Snapshot installer version: $v"
+          & "$isccPath" "/DMyAppVersion=$v" /DOutputDir="$PWD\nightly" installer\Beam.iss
 
       - name: List installer output
         shell: pwsh
