@@ -60,10 +60,16 @@ public class PresentationErrorInjectionTests
         var session = new SessionManager();
         var changes = new FakeChangeSource();
         var journal = new FakeJournalStore();
+        var topoSource = topology as FakeTopologySource ?? new FakeTopologySource { Topology = Topologies.MirroredWithMismatch() };
+        var modeFake = mode as FakeModeController ?? new FakeModeController();
+
+        // A successful apply resolves the mismatch so verify-after-mode can observe it.
+        modeFake.OnApply = () => topoSource.Topology = Topologies.CloneFixed16x9();
+
         var manager = Build(
             changes,
-            topology ?? new FakeTopologySource { Topology = Topologies.MirroredWithMismatch() },
-            mode ?? new FakeModeController(),
+            topology ?? topoSource,
+            mode ?? modeFake,
             dpi ?? new FakeDpiController { ReadResult = DpiScale.From(-4, 0, 4) },
             nightLight ?? new FakeNightLightController(),
             journal,
@@ -134,10 +140,13 @@ public class PresentationErrorInjectionTests
         // exercise restore with a faulting night light restore.
         // Build a fresh harness where restore throws.
         var session2 = new SessionManager();
+        var topo2 = new FakeTopologySource { Topology = Topologies.MirroredWithMismatch() };
+        var mode2 = new FakeModeController();
+        mode2.OnApply = () => topo2.Topology = Topologies.CloneFixed16x9();
         using var manager2 = Build(
             new FakeChangeSource(),
-            new FakeTopologySource { Topology = Topologies.MirroredWithMismatch() },
-            new FakeModeController(),
+            topo2,
+            mode2,
             new FakeDpiController { ReadResult = DpiScale.From(-4, 0, 4) },
             new ThrowingNightLightController(),
             new FakeJournalStore(),

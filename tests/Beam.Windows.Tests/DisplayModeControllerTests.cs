@@ -64,4 +64,26 @@ public class DisplayModeControllerTests
         var modes = new[] { Mode(1920, 1200, 60), Mode(2560, 1600, 60) };
         Assert.Empty(DisplayModeController.Rank16x9(modes));
     }
+
+    [Fact]
+    public void BoundedCandidates_CapsAtMaxCandidates()
+    {
+        // UC-12 rule 5: no matter how many modes a driver reports, at most
+        // MaxCandidates are tried per apply.
+        var modes = Enumerable.Range(0, 10).Select(i => Mode(1920, 1080, 60 + i)).ToList();
+
+        IReadOnlyList<DisplayMode> bounded = DisplayModeController.BoundedCandidates(modes);
+
+        Assert.Equal(DisplayModeController.MaxCandidates, bounded.Count);
+        Assert.Equal(modes.Take(DisplayModeController.MaxCandidates).ToList(), bounded);
+    }
+
+    [Fact]
+    public void BoundedCandidates_KeepsAllWhenFewerThanCap()
+    {
+        var modes = new[] { Mode(1920, 1080, 60), Mode(1280, 720, 60) };
+
+        Assert.Equal(2, DisplayModeController.BoundedCandidates(modes).Count);
+        Assert.Empty(DisplayModeController.BoundedCandidates(Array.Empty<DisplayMode>()));
+    }
 }
