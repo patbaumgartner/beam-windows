@@ -1,28 +1,21 @@
 # Security Policy
 
-## Reporting a vulnerability
-
-Beam is a small, per-user tray app. It holds no credentials and makes no network calls,
-so the attack surface is narrow — but if you find a problem, please report it privately.
-
-**Please do not open a public issue for security bugs.**
-
-Report vulnerabilities to the maintainer via a private message/email before disclosure.
-
 ## Supported versions
 
 | Version | Supported |
 |---|---|
-| latest `main` | ✅ |
-| tagged releases | ✅ |
-| older releases | ⚠️ best effort |
+| 0.1.x (latest `main` / `snapshot` build) | ✅ |
+| older | ❌ |
 
-## What Beam does (and does not) touch
+Beam is a per-user tray app with **no admin rights** and **no network access**. Its attack
+surface is limited to: the display/Night Light settings it writes (per-user registry +
+CCD API) and the journal/log files under `%LOCALAPPDATA%\Beam`.
 
-- Reads/writes the **current user's** display configuration via the public
-  `QueryDisplayConfig`/`SetDisplayConfig`/`ChangeDisplaySettingsEx` APIs.
-- Reads/writes the **current user's** Night Light toggle in the per-user CloudStore.
-- Runs with user privileges (`PrivilegesRequired=lowest` installer); **never** elevates.
-- Makes **no network calls**.
+## Reporting a vulnerability
 
-If any of that stops being true, this policy is out of date.
+Please report privately via
+[GitHub Security Advisories](https://github.com/patbaumgartner/beam-windows/security/advisories/new)
+— do **not** open a public issue. You can expect an acknowledgement within 72 hours.
+
+Include, if you have it: Beam version (`beam help --json`), Windows build, and the relevant
+tail of `%LOCALAPPDATA%\Beam\beam-detailed.jsonl`.

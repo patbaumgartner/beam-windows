@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions / questions
+    url: https://github.com/patbaumgartner/beam-windows/discussions
+    about: Ask questions and discuss ideas here instead of opening an issue.
+  - name: Security vulnerability
+    url: https://github.com/patbaumgartner/beam-windows/security/advisories/new
+    about: Report security issues privately — do not open a public issue.
