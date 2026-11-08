@@ -20,6 +20,8 @@
   <ItemGroup>
     <EmbeddedResource Include="Assets\app.ico" LogicalName="Beam.Tray.Assets.app.ico" />
     <None Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <EmbeddedResource Include="Assets\high-beam.png" LogicalName="Beam.Tray.Assets.high-beam.png" />
+    <None Include="Assets\high-beam.png" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

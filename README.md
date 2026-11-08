@@ -46,7 +46,8 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   display goes away. Safe even if Beam is killed mid-fix.
 - 🖱️ **Responsive tray menu** — status, **Launch at sign-in**, Pause/Resume, *Apply
   projector mode now*, *Restore display*.
-- 💠 **Laser-beam icon** — Pantone 638C + white, reads on light and dark taskbars.
+- 💠 **High-beam icon** — Pantone 638C with a halo, reads on light and dark taskbars
+  (icon by I Create Stuff, CC BY 3.0 — see [assets/ATTRIBUTION.md](assets/ATTRIBUTION.md)).
 - 🧰 **CLI** — `beam status`, `beam devices`, `beam apply`, `beam restore`,
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
