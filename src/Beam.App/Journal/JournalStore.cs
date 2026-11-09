@@ -38,15 +38,22 @@ public sealed class JournalStore : IJournalStore
         WriteIndented = true,
     };
 
-    /// <summary>Persists that a fix sequence has started, with the captured Night Light state.</summary>
-    public void BeginApply(string reason, IReadOnlyList<NightLightSnapshot>? nightLight)
+    /// <summary>
+    /// Persists that a fix sequence has started, with the captured Night Light state and
+    /// the original DPI scale per source (roadmap 1.9: DPI restore needs the pre-apply value).
+    /// </summary>
+    public void BeginApply(
+        string reason,
+        IReadOnlyList<NightLightSnapshot>? nightLight,
+        IReadOnlyList<JournalDpiEntry>? dpi = null)
     {
         var journal = new JournalRecord(
             IsActive: true,
             Reason: reason,
             AppliedAt: DateTimeOffset.Now.ToString("o"),
             NightLight: nightLight?.Select(n => new JournalEntry(
-                n.KeyPath, n.ValueName, Convert.ToBase64String(n.RawBytes))).ToList());
+                n.KeyPath, n.ValueName, Convert.ToBase64String(n.RawBytes))).ToList(),
+            Dpi: dpi is { Count: > 0 } ? dpi.ToList() : null);
         Write(journal);
     }
 
@@ -130,4 +137,11 @@ public sealed class JournalStore : IJournalStore
         }
         return list.Count == 0 ? null : list;
     }
+
+    /// <summary>
+    /// Rehydrates the original DPI scales captured before a fix was applied, so restore
+    /// (including crash recovery) can put them back exactly (roadmap 1.9).
+    /// </summary>
+    public static IReadOnlyList<JournalDpiEntry>? RehydrateDpi(JournalRecord? journal) =>
+        journal?.Dpi is { Count: > 0 } dpi ? dpi : null;
 }

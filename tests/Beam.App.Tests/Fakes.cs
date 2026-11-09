@@ -204,16 +204,21 @@ internal sealed class FakeJournalStore : IJournalStore
     public int BeginCalls { get; private set; }
     public int ClearCalls { get; private set; }
     public IReadOnlyList<NightLightSnapshot>? LastBegin { get; private set; }
+    public IReadOnlyList<JournalDpiEntry>? LastDpi { get; private set; }
 
     /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
     public Action? BeforeCall { get; set; }
 
-    public void BeginApply(string reason, IReadOnlyList<NightLightSnapshot>? nightLight)
+    public void BeginApply(
+        string reason,
+        IReadOnlyList<NightLightSnapshot>? nightLight,
+        IReadOnlyList<JournalDpiEntry>? dpi = null)
     {
         BeforeCall?.Invoke();
         BeginCalls++;
         LastBegin = nightLight;
-        Record = new JournalRecord(true, reason, DateTimeOffset.Now.ToString("o"), null);
+        LastDpi = dpi;
+        Record = new JournalRecord(true, reason, DateTimeOffset.Now.ToString("o"), null, dpi);
     }
 
     public JournalRecord? Read()

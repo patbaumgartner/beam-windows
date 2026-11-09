@@ -124,7 +124,7 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
 - Tray context menu: **Open log folder** item (opens `%LOCALAPPDATA%\Beam` so
   `beam-detailed.jsonl` can be attached to a bug report), and the **Apply / Restore**
   actions are now contextually enabled — `Apply projector mode now` only when idle,
-  `Restore display` only while a fix is active — so a click is never a no-op.
+  `Undo projector mode` only while a fix is active — so a click is never a no-op.
 - File logging writes `beam.log` (human) and `beam-detailed.jsonl` (structured) under
   `%LOCALAPPDATA%\Beam`; a locked log file never takes the app down.
 - **Documentation diagrams** (`docs/media/`): architecture layering, session state

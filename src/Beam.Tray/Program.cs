@@ -35,9 +35,13 @@ internal sealed class TrayApplicationContext : ApplicationContext
     public event Action? ApplyNowRequested;
     public event Action? RestoreRequested;
 
-    public TrayApplicationContext(SessionManager session, Action<string> log, bool startHidden)
+    public TrayApplicationContext(
+        SessionManager session,
+        Action<string> log,
+        bool startHidden,
+        PresentationManager? presentation = null)
     {
-        _tray = new TrayService(session, log, startHidden);
+        _tray = new TrayService(session, log, startHidden, presentation);
 
         _tray.ApplyNowRequested += () => ApplyNowRequested?.Invoke();
         _tray.RestoreRequested += () => RestoreRequested?.Invoke();
@@ -136,7 +140,7 @@ internal static class Program
         // TrayApplicationContext owns the hidden host form and the tray icon.
         // Application.Run(context) enters the WinForms message loop. It returns only
         // when ExitThread() is called — i.e. when the user clicks "Exit Beam".
-        using var context = new TrayApplicationContext(session, log, hidden);
+        using var context = new TrayApplicationContext(session, log, hidden, presentation);
         context.ApplyNowRequested += () => _ = presentation.ApplyNowAsync();
         context.RestoreRequested += () => _ = presentation.RestoreNowAsync();
 

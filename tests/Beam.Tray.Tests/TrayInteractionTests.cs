@@ -79,9 +79,9 @@ public class TrayInteractionTests
     [InlineData(SessionState.Active, true)]
     [InlineData(SessionState.Restoring, false)]
     [InlineData(SessionState.Paused, false)]
-    public void CanRestore_OnlyWhenActive(SessionState state, bool expected)
+    public void CanUndo_OnlyWhenActive(SessionState state, bool expected)
     {
-        Assert.Equal(expected, TrayPresentation.CanRestore(state));
+        Assert.Equal(expected, TrayPresentation.CanUndo(state));
     }
 
     // ── Startup command: the registry Run-key value the “Launch at sign-in” toggle writes ──

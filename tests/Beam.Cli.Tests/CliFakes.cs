@@ -116,11 +116,16 @@ internal sealed class CliJournalStore : IJournalStore
     public JournalRecord? Record { get; set; }
     public int BeginCalls { get; private set; }
     public int ClearCalls { get; private set; }
+    public IReadOnlyList<JournalDpiEntry>? LastDpi { get; private set; }
 
-    public void BeginApply(string reason, IReadOnlyList<NightLightSnapshot>? nightLight)
+    public void BeginApply(
+        string reason,
+        IReadOnlyList<NightLightSnapshot>? nightLight,
+        IReadOnlyList<JournalDpiEntry>? dpi = null)
     {
         BeginCalls++;
-        Record = new JournalRecord(true, reason, DateTimeOffset.Now.ToString("o"), null);
+        LastDpi = dpi;
+        Record = new JournalRecord(true, reason, DateTimeOffset.Now.ToString("o"), null, dpi);
     }
 
     public JournalRecord? Read() => Record;

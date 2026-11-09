@@ -4,6 +4,7 @@ using System.Drawing.Imaging;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Beam.App.Presentation;
 using Beam.App.Sessions;
 using Beam.Core.Diagnostics;
 using Beam.Core.Display;
@@ -31,9 +32,18 @@ public sealed class TrayService : IDisposable
     private ToolStripMenuItem? _statusItem;
     private ToolStripMenuItem? _startupItem;
     private ToolStripMenuItem? _applyItem;
-    private ToolStripMenuItem? _restoreItem;
+    private ToolStripMenuItem? _undoItem;
+    private ToolStripMenuItem? _enableItem;
+    private ToolStripMenuItem? _nightLightItem;
+    private ToolStripMenuItem? _policyModeItem;
+    private ToolStripMenuItem? _policyDpiItem;
+    private ToolStripMenuItem? _policyNightLightItem;
     private ContextMenuStrip? _menu;
     private System.Windows.Forms.Timer? _cursorGuard;
+
+    // Optional engine reference for the Settings submenu and the safe-mode balloon
+    // (roadmap 1.10/1.12/1.13). Null in tests that only exercise session-state mapping.
+    private readonly PresentationManager? _presentation;
 
     // Cached HKCU Run-key state. Refreshed off the UI thread (see
     // RefreshStartupStateInBackground) so opening the menu never blocks on registry I/O.
@@ -47,11 +57,16 @@ public sealed class TrayService : IDisposable
 
     public event Action? ExitRequested;
 
-    public TrayService(SessionManager session, Action<string>? log = null, bool startHidden = false)
+    public TrayService(
+        SessionManager session,
+        Action<string>? log = null,
+        bool startHidden = false,
+        PresentationManager? presentation = null)
     {
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _log = log ?? (_ => { });
         _startHidden = startHidden;
+        _presentation = presentation;
 
         // Captured on the UI thread (TrayService is constructed from Program's thread).
         // State-change callbacks can arrive from the background display-monitor loop, so
@@ -60,6 +75,11 @@ public sealed class TrayService : IDisposable
         _ui = SynchronizationContext.Current;
 
         _session.StateChanged += OnStateChanged;
+        if (_presentation is not null)
+        {
+            // UC-12 AC5: safe mode must be visible — surface it with a warning balloon.
+            _presentation.SafeModeChanged += OnSafeModeChanged;
+        }
     }
 
     public void Show()
@@ -278,10 +298,72 @@ public sealed class TrayService : IDisposable
         _startupItem.Click += (_, _) => ToggleStartup();
         menu.Items.Add(_startupItem);
 
+        // Settings submenu (roadmap 1.13): master switch, manual Night Light toggle, and
+        // the policy toggles that gate the fix sequence. Only present when the engine is
+        // wired in (always true in the tray app; null in tests).
+        if (_presentation is not null)
+        {
+            var settings = new ToolStripMenuItem("Settings");
+
+            _enableItem = new ToolStripMenuItem("Enable Beam")
+            {
+                Checked = _presentation.IsEnabled,
+                CheckOnClick = true,
+            };
+            _enableItem.Click += (_, _) =>
+            {
+                bool enabled = _enableItem.Checked;
+                Log.Info("Enable Beam toggled from tray menu", "Tray", ("enabled", enabled.ToString()));
+                _ = _presentation.SetEnabledAsync(enabled);
+            };
+            settings.DropDownItems.Add(_enableItem);
+
+            _nightLightItem = new ToolStripMenuItem("Night Light")
+            {
+                Checked = true,
+                CheckOnClick = true,
+            };
+            _nightLightItem.Click += (_, _) =>
+            {
+                bool on = _nightLightItem.Checked;
+                Log.Info("Night Light toggled manually from tray menu", "Tray", ("on", on.ToString()));
+                _presentation.SetNightLight(on);
+            };
+            settings.DropDownItems.Add(_nightLightItem);
+
+            var policy = new ToolStripMenuItem("Policy");
+            _policyModeItem = new ToolStripMenuItem("Control display mode")
+            {
+                Checked = _presentation.UseMode,
+                CheckOnClick = true,
+            };
+            _policyModeItem.Click += (_, _) => _presentation.UseMode = _policyModeItem.Checked;
+            policy.DropDownItems.Add(_policyModeItem);
+
+            _policyDpiItem = new ToolStripMenuItem("Control DPI")
+            {
+                Checked = _presentation.UseDpi,
+                CheckOnClick = true,
+            };
+            _policyDpiItem.Click += (_, _) => _presentation.UseDpi = _policyDpiItem.Checked;
+            policy.DropDownItems.Add(_policyDpiItem);
+
+            _policyNightLightItem = new ToolStripMenuItem("Turn Night Light off in fix")
+            {
+                Checked = _presentation.UseNightLight,
+                CheckOnClick = true,
+            };
+            _policyNightLightItem.Click += (_, _) => _presentation.UseNightLight = _policyNightLightItem.Checked;
+            policy.DropDownItems.Add(_policyNightLightItem);
+            settings.DropDownItems.Add(policy);
+
+            menu.Items.Add(settings);
+        }
+
         menu.Items.Add(new ToolStripSeparator());
 
         // Manual actions. Enabled state is derived from the session state so a click is
-        // never a no-op (see TrayPresentation.CanApplyNow / CanRestore).
+        // never a no-op (see TrayPresentation.CanApplyNow / CanUndo).
         _applyItem = new ToolStripMenuItem("Apply projector mode now")
         {
             Enabled = TrayPresentation.CanApplyNow(_session.State),
@@ -294,17 +376,19 @@ public sealed class TrayService : IDisposable
         };
         menu.Items.Add(_applyItem);
 
-        _restoreItem = new ToolStripMenuItem("Restore display")
+        // UC-09: one-click undo of an active fix (roadmap 1.12). Wired to RestoreNowAsync
+        // in the composition root; enabled only while a fix is actually active (AC3).
+        _undoItem = new ToolStripMenuItem("Undo projector mode")
         {
-            Enabled = TrayPresentation.CanRestore(_session.State),
+            Enabled = TrayPresentation.CanUndo(_session.State),
         };
-        _restoreItem.Click += (_, _) =>
+        _undoItem.Click += (_, _) =>
         {
-            Log.Info("Restore requested from tray menu", "Tray",
+            Log.Info("Undo requested from tray menu", "Tray",
                 ("state", _session.State.ToString()));
             RestoreRequested?.Invoke();
         };
-        menu.Items.Add(_restoreItem);
+        menu.Items.Add(_undoItem);
 
         menu.Items.Add(new ToolStripSeparator());
 
@@ -361,7 +445,7 @@ public sealed class TrayService : IDisposable
     /// <summary>Raised when the user picks "Apply projector mode now".</summary>
     public event Action? ApplyNowRequested;
 
-    /// <summary>Raised when the user picks "Restore display".</summary>
+    /// <summary>Raised when the user picks "Undo projector mode" (UC-09 one-click revert).</summary>
     public event Action? RestoreRequested;
 
     private void OnStateChanged(SessionEvent evt)
@@ -398,9 +482,9 @@ public sealed class TrayService : IDisposable
         {
             _applyItem.Enabled = TrayPresentation.CanApplyNow(evt.To);
         }
-        if (_restoreItem is not null)
+        if (_undoItem is not null)
         {
-            _restoreItem.Enabled = TrayPresentation.CanRestore(evt.To);
+            _undoItem.Enabled = TrayPresentation.CanUndo(evt.To);
         }
 
         // Tooltip text and balloons both go through Shell_NotifyIcon, which is serviced by
@@ -500,9 +584,9 @@ public sealed class TrayService : IDisposable
         {
             _applyItem.Enabled = TrayPresentation.CanApplyNow(_session.State);
         }
-        if (_restoreItem is not null)
+        if (_undoItem is not null)
         {
-            _restoreItem.Enabled = TrayPresentation.CanRestore(_session.State);
+            _undoItem.Enabled = TrayPresentation.CanUndo(_session.State);
         }
         if (_startupItem is not null)
         {
@@ -674,9 +758,51 @@ public sealed class TrayService : IDisposable
 
     private static string PauseItemText(SessionState state) => TrayPresentation.PauseItemText(state);
 
+    /// <summary>
+    /// UC-12 AC5: safe mode must be visible. Entering safe mode shows a warning balloon;
+    /// leaving it does not (the next successful fix is itself visible via the status line).
+    /// Marshalled to the UI thread because the event fires on the monitor loop.
+    /// </summary>
+    public void OnSafeModeChanged(bool active)
+    {
+        if (!active)
+        {
+            return;
+        }
+
+        void Show()
+        {
+            // Shell calls while the context menu is open are deferred elsewhere; the
+            // balloon is less urgent than the state line, so skip it there.
+            if (IsContextMenuOpen)
+            {
+                return;
+            }
+
+            _icon.ShowBalloonTip(
+                5000,
+                "Beam — safe mode",
+                "Beam could not apply the projector fix twice in a row, so it paused itself to protect your display. Choose 'Apply projector mode now' to retry.",
+                ToolTipIcon.Warning);
+        }
+
+        if (_ui is not null && _ui != SynchronizationContext.Current)
+        {
+            _ui.Post(_ => Show(), null);
+        }
+        else
+        {
+            Show();
+        }
+    }
+
     public void Dispose()
     {
         _session.StateChanged -= OnStateChanged;
+        if (_presentation is not null)
+        {
+            _presentation.SafeModeChanged -= OnSafeModeChanged;
+        }
         _cursorGuard?.Stop();
         _cursorGuard?.Dispose();
         _cursorGuard = null;

@@ -45,7 +45,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
 - ↩️ **Exact rollback** — restores topology, sourced resolutions, and Night Light when the
   display goes away. Safe even if Beam is killed mid-fix.
 - 🖱️ **Responsive tray menu** — status, **Launch at sign-in**, Pause/Resume, *Apply
-  projector mode now*, *Restore display*.
+  projector mode now*, *Undo projector mode* (one-click revert while presenting).
 - 💠 **High-beam icon** — scalable SVG in Pantone 638C with a halo, rendered crisp at any
   size and readable on light and dark taskbars (icon by I Create Stuff, CC BY 3.0 — see
   [assets/ATTRIBUTION.md](assets/ATTRIBUTION.md)).
@@ -53,7 +53,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 550 xUnit tests, with the application layer driven entirely through
+- 🧪 **Tested** — 569 xUnit tests, with the application layer driven entirely through
   fake ports. Core is at ~95% line coverage and App at ~98%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
@@ -85,7 +85,7 @@ The suite runs on any Windows machine with the SDK; no projector is required. Se
 ## Usage
 
 <p>
-  <img src="docs/media/tray-menu.svg" alt="Beam tray icon with context menu: status line, Apply projector mode now (enabled), Restore display (disabled while not presenting), Pause, Open log folder, Run at sign-in, About, Exit" width="380">
+  <img src="docs/media/tray-menu.svg" alt="Beam tray icon with context menu: status line, Apply projector mode now (enabled), Undo projector mode (disabled while not presenting), Pause, Open log folder, Run at sign-in, About, Exit" width="380">
 </p>
 
 ### Tray
@@ -96,7 +96,7 @@ The suite runs on any Windows machine with the SDK; no projector is required. Se
 | **Launch at sign-in** | Add/remove Beam from Windows startup (HKCU Run key) |
 | **Pause / Resume** | Stop / restart reacting to display changes |
 | **Apply projector mode now** | Manually run the fix |
-| **Restore display** | Manually roll back to the previous configuration |
+| **Undo projector mode** | One-click revert of an active fix (mode + DPI + Night Light); enabled only while presenting |
 | **Exit Beam** | Quit |
 
 ### CLI
@@ -193,7 +193,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 562 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 569 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Mutation | `pwsh eng/mutation-test.ps1` | zero surviving mutants (weak tests / dead code flagged) |

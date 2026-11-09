@@ -184,7 +184,8 @@ The tray is manual because it needs Explorer, the notification area and real mou
 4. Click **Pause Beam** / **Resume Beam**: the label and tooltip match the state.
 5. **Apply projector mode now** with no projector attached: the session fails gracefully
    and the CLI still reports a usable state.
-6. **Restore display** while idle: no error, no display flash.
+6. **Undo projector mode** while idle: item disabled, click impossible — no error,
+   no display flash.
 7. **Exit Beam**, relaunch: single instance, no duplicate icons or monitor loops.
 
 ### 4.3 Sticky-cursor regression proof

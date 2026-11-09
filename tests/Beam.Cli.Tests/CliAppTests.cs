@@ -222,6 +222,54 @@ public class CliAppTests
         Assert.True(h.NightLight.LastActive);
     }
 
+    // ── Roadmap 1.9: original DPI is journalled on apply and restored on restore ──
+
+    [Fact]
+    public void Apply_WritesOriginalDpiToJournal()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.Dpi.ReadResult = ScaleAt200;
+
+        int code = h.Run("apply");
+
+        Assert.Equal(ExitCodes.Success, code);
+        JournalDpiEntry entry = Assert.Single(h.Journal.LastDpi!);
+        Assert.Equal(200, entry.Percent);
+        Assert.Equal("0001594D:00000000", entry.AdapterId);
+    }
+
+    [Fact]
+    public void Restore_WithDpiJournal_RestoresCapturedDpi()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        h.Journal.Record = new JournalRecord(
+            true,
+            "cli-apply",
+            DateTimeOffset.Now.ToString("o"),
+            null,
+            new[] { new JournalDpiEntry("0001594D:00000000", 0, 200) });
+
+        int code = h.Run("restore");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Contains(200, h.Dpi.RequestedPercents); // original scale put back
+        Assert.Contains("DPI:", h.Output);
+        Assert.Equal(1, h.Journal.ClearCalls);
+    }
+
+    [Fact]
+    public void Restore_WithoutDpiJournal_ReportsDpiUnchanged()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+
+        int code = h.Run("restore");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Empty(h.Dpi.RequestedPercents);
+        Assert.Contains("DPI:", h.Output);
+        Assert.Contains("no captured scale", h.Output);
+    }
+
     // ── dpi ─────────────────────────────────────────────────────────────────────
 
     [Fact]

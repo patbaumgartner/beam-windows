@@ -46,6 +46,7 @@ public sealed class PresentationManager : IDisposable
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<NightLightSnapshot>? _nightLightSnapshot;
+    private IReadOnlyList<JournalDpiEntry>? _dpiSnapshot;
     private Task _pending = Task.CompletedTask;
     private DateTimeOffset _lastOwnMutationUtc = DateTimeOffset.MinValue;
     private int _consecutiveFailures;
@@ -53,6 +54,18 @@ public sealed class PresentationManager : IDisposable
 
     /// <summary>Raised when safe mode is entered or cleared (UC-12 AC5: must be visible).</summary>
     public event Action<bool>? SafeModeChanged;
+
+    /// <summary>UC-15 minimal settings: master switch. While false, no automatic fixes run.</summary>
+    public bool IsEnabled { get; private set; } = true;
+
+    /// <summary>Policy: control the display mode in the fix sequence (roadmap 1.13).</summary>
+    public bool UseMode { get; set; } = true;
+
+    /// <summary>Policy: control the DPI scale in the fix sequence (roadmap 1.13).</summary>
+    public bool UseDpi { get; set; } = true;
+
+    /// <summary>Policy: turn Night Light off in the fix sequence (roadmap 1.13).</summary>
+    public bool UseNightLight { get; set; } = true;
 
     public PresentationManager(
         IDisplayChangeSource changes,
@@ -114,6 +127,19 @@ public sealed class PresentationManager : IDisposable
     /// </summary>
     public Task TryRecoverAsync() => Track(RunExclusiveAsync(TryRecoverCoreAsync));
 
+    /// <summary>
+    /// UC-12 rule 12 kill switch: disabling Beam restores an active fix immediately and
+    /// stops automatic applies; enabling resumes monitoring.
+    /// </summary>
+    public Task SetEnabledAsync(bool enabled) => Track(RunExclusiveAsync(() => SetEnabledCoreAsync(enabled)));
+
+    /// <summary>Manual Night Light on/off toggle from the tray Settings menu (roadmap 1.13).</summary>
+    public void SetNightLight(bool on)
+    {
+        Log.Info("Night Light manual toggle", "Manual", ("active", on.ToString()));
+        _nightLight.SetActive(on);
+    }
+
     // ── Display-change handling ─────────────────────────────────────────────────
 
     private void OnDisplayChanged(ConnectionSnapshot? previous, ConnectionSnapshot current)
@@ -142,6 +168,12 @@ public sealed class PresentationManager : IDisposable
         if (state == SessionState.Paused)
         {
             Log.Info("Session is paused — ignoring change.", "Monitor");
+            return;
+        }
+
+        if (!IsEnabled)
+        {
+            Log.Info("Beam is disabled — ignoring change.", "Monitor");
             return;
         }
 
@@ -237,10 +269,38 @@ public sealed class PresentationManager : IDisposable
         return RestoreSequenceAsync();
     }
 
+    private Task SetEnabledCoreAsync(bool enabled)
+    {
+        if (IsEnabled == enabled)
+        {
+            return Task.CompletedTask;
+        }
+
+        IsEnabled = enabled;
+        Log.Info(enabled
+                ? "Beam enabled by user — monitoring resumed."
+                : "Beam disabled by user — restoring now if a fix is active.",
+            "Manual", ("enabled", enabled.ToString()));
+
+        // UC-12 rule 12: the kill switch restores immediately, synchronously.
+        if (!enabled && _session.State is SessionState.Active or SessionState.Applying)
+        {
+            return RestoreSequenceAsync();
+        }
+
+        return Task.CompletedTask;
+    }
+
     private Task CheckCurrentStateCoreAsync()
     {
         if (_session.State != SessionState.Idle)
         {
+            return Task.CompletedTask;
+        }
+
+        if (!IsEnabled)
+        {
+            Log.Info("Startup state check: Beam is disabled — not auto-applying.", "Startup");
             return Task.CompletedTask;
         }
 
@@ -279,8 +339,10 @@ public sealed class PresentationManager : IDisposable
             $"Recovering from previous interrupted session (appliedAt={journal.AppliedAt}, reason={journal.Reason}).",
             "Recovery");
 
-        // Rehydrate the Night Light snapshot so restore can put it back exactly.
+        // Rehydrate the Night Light snapshot and the original DPI scales so restore can
+        // put both back exactly (roadmap 1.9: DPI restore from the crash journal).
         _nightLightSnapshot = JournalStore.RehydrateNightLight(journal);
+        _dpiSnapshot = JournalStore.RehydrateDpi(journal);
         await RestoreSequenceAsync().ConfigureAwait(false);
     }
 
@@ -297,58 +359,88 @@ public sealed class PresentationManager : IDisposable
         var overall = Stopwatch.StartNew();
         try
         {
-            // Step 1: Night Light OFF.
-            Log.Info("Fix Step 1: Night Light OFF", "Fix", ("step", "nightLight"));
-            _nightLightSnapshot = _nightLight.SnapshotAll();
+            // Step 1: Night Light OFF (policy-gated: UseNightLight).
+            if (UseNightLight)
+            {
+                Log.Info("Fix Step 1: Night Light OFF", "Fix", ("step", "nightLight"));
+                _nightLightSnapshot = _nightLight.SnapshotAll();
 
-            Log.Info("Night Light snapshots captured", "Fix",
-                ("count", _nightLightSnapshot.Count),
-                ("snapshots", string.Join(",", _nightLightSnapshot.Select(s => s.KeyPath))));
+                Log.Info("Night Light snapshots captured", "Fix",
+                    ("count", _nightLightSnapshot.Count),
+                    ("snapshots", string.Join(",", _nightLightSnapshot.Select(s => s.KeyPath))));
+            }
+            else
+            {
+                Log.Info("Fix Step 1 skipped: policy says do not control Night Light.", "Fix", ("step", "nightLight"));
+                _nightLightSnapshot = null;
+            }
+
+            // Roadmap 1.9: capture the original DPI scale before any mutation, so restore
+            // (and crash recovery from the journal) can put it back exactly.
+            _dpiSnapshot = CaptureDpi();
 
             // Persist intent before any mutation: if Beam is killed later in the sequence,
             // the next launch sees an active journal and can recover.
-            _journal.BeginApply("fix-sequence-started", _nightLightSnapshot);
+            _journal.BeginApply("fix-sequence-started", _nightLightSnapshot, _dpiSnapshot);
 
-            NightLightWriteResult nlResult = _nightLight.SetActive(active: false);
-            MarkOwnMutation();
-            Log.Info("Night Light set-off result", "Fix",
-                ("step", "nightLight"),
-                ("success", nlResult.Success.ToString()),
-                ("message", nlResult.Message),
-                ("details", string.Join(" | ", nlResult.Details)));
-
-            // Step 2: clone/duplicate topology with a 16:9 shared source.
-            Log.Info("Fix Step 2: Display mode — clone + 16:9", "Fix", ("step", "displayMode"));
-            LogTopology("Topology before mode change", "Fix", _topology.Query());
-
-            string? modeError = _mode.ApplyCloneWith16x9();
-            MarkOwnMutation();
-
-            // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
-            if (modeError is null && TriggerCondition.IsMet(_topology.Query()))
+            if (UseNightLight)
             {
-                modeError = "verify-after-mode failed: mirror aspect mismatch still present after apply";
+                NightLightWriteResult nlResult = _nightLight.SetActive(active: false);
+                MarkOwnMutation();
+                Log.Info("Night Light set-off result", "Fix",
+                    ("step", "nightLight"),
+                    ("success", nlResult.Success.ToString()),
+                    ("message", nlResult.Message),
+                    ("details", string.Join(" | ", nlResult.Details)));
             }
 
-            LogTopology("Topology after mode change", "Fix", _topology.Query(), modeError);
-
-            if (modeError is not null)
+            // Step 2: clone/duplicate topology with a 16:9 shared source (policy-gated: UseMode).
+            string? modeError = null;
+            if (UseMode)
             {
-                // UC-12 rules 4/13: never stay half-applied. Unwind everything via restore.
-                Log.Warn("Fix failed at display mode — unwinding via restore.", "Fix",
-                    ("step", "displayMode"),
-                    ("error", modeError));
-                NoteFailure(modeError);
-                _session.RequestRestore();
-                await RestoreSequenceAsync().ConfigureAwait(false);
-                return;
+                Log.Info("Fix Step 2: Display mode — clone + 16:9", "Fix", ("step", "displayMode"));
+                LogTopology("Topology before mode change", "Fix", _topology.Query());
+
+                modeError = _mode.ApplyCloneWith16x9();
+                MarkOwnMutation();
+
+                // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
+                if (modeError is null && TriggerCondition.IsMet(_topology.Query()))
+                {
+                    modeError = "verify-after-mode failed: mirror aspect mismatch still present after apply";
+                }
+
+                LogTopology("Topology after mode change", "Fix", _topology.Query(), modeError);
+
+                if (modeError is not null)
+                {
+                    // UC-12 rules 4/13: never stay half-applied. Unwind everything via restore.
+                    Log.Warn("Fix failed at display mode — unwinding via restore.", "Fix",
+                        ("step", "displayMode"),
+                        ("error", modeError));
+                    NoteFailure(modeError);
+                    _session.RequestRestore();
+                    await RestoreSequenceAsync().ConfigureAwait(false);
+                    return;
+                }
+
+                Log.Info("Display mode applied and verified", "Fix", ("step", "displayMode"));
+            }
+            else
+            {
+                Log.Info("Fix Step 2 skipped: policy says do not control display mode.", "Fix", ("step", "displayMode"));
             }
 
-            Log.Info("Display mode applied and verified", "Fix", ("step", "displayMode"));
-
-            // Step 3: readable DPI on the shared source.
-            ApplyDpi();
-            MarkOwnMutation();
+            // Step 3: readable DPI on the shared source (policy-gated: UseDpi).
+            if (UseDpi)
+            {
+                ApplyDpi();
+                MarkOwnMutation();
+            }
+            else
+            {
+                Log.Info("Fix Step 3 skipped: policy says do not control DPI.", "Fix", ("step", "dpi"));
+            }
 
             _session.MarkActive();
             NoteSuccess("fix sequence complete");
@@ -456,8 +548,15 @@ public sealed class PresentationManager : IDisposable
 
             LogTopology("Topology after restore", "Restore", _topology.Query(), modeError);
 
-            // Step 2: put Night Light back exactly as it was.
-            Log.Info("Restore Step 2: Night Light", "Restore", ("step", "nightLight"));
+            // Step 2: put the original DPI scales back (roadmap 1.9).
+            if (_dpiSnapshot is { Count: > 0 } dpiEntries)
+            {
+                Log.Info("Restore Step 2: DPI", "Restore", ("step", "dpi"));
+                RestoreDpi(dpiEntries);
+            }
+
+            // Step 3: put Night Light back exactly as it was.
+            Log.Info("Restore Step 3: Night Light", "Restore", ("step", "nightLight"));
             if (_nightLightSnapshot is { Count: > 0 } snapshot)
             {
                 NightLightWriteResult nlResult = _nightLight.Restore(snapshot);
@@ -475,6 +574,7 @@ public sealed class PresentationManager : IDisposable
 
             MarkOwnMutation();
             _nightLightSnapshot = null;
+            _dpiSnapshot = null;
             _journal.Clear();
             _session.MarkIdle();
             overall.Stop();
@@ -486,6 +586,7 @@ public sealed class PresentationManager : IDisposable
             overall.Stop();
             Log.Exception(ex, "Restore");
             _nightLightSnapshot = null;
+            _dpiSnapshot = null;
             _session.MarkIdle();
         }
 
@@ -496,6 +597,72 @@ public sealed class PresentationManager : IDisposable
 
     /// <summary>UC-12 rule 8: records that Beam itself just mutated the display stack.</summary>
     private void MarkOwnMutation() => _lastOwnMutationUtc = _clock();
+
+    /// <summary>
+    /// Roadmap 1.9: captures the current DPI percent of the shared source before any
+    /// mutation, so restore can put it back and the journal can persist it for crash recovery.
+    /// </summary>
+    private IReadOnlyList<JournalDpiEntry>? CaptureDpi()
+    {
+        try
+        {
+            DisplayPath? sharedSource = _topology.Query().ActivePaths.FirstOrDefault();
+            if (sharedSource is null)
+            {
+                return null;
+            }
+
+            DpiScale? scale = _dpi.Read(sharedSource);
+            if (scale?.Value is null)
+            {
+                return null;
+            }
+
+            return new[]
+            {
+                new JournalDpiEntry(sharedSource.AdapterId, sharedSource.SourceId, scale.Value.Current),
+            };
+        }
+        catch (Exception ex)
+        {
+            Log.Exception(ex, "Fix", ("step", "dpiCapture"));
+            return null;
+        }
+    }
+
+    /// <summary>Roadmap 1.9: puts the captured original DPI scales back, verifying each write.</summary>
+    private void RestoreDpi(IReadOnlyList<JournalDpiEntry> entries)
+    {
+        foreach (JournalDpiEntry entry in entries)
+        {
+            try
+            {
+                DisplayPath? path = _topology.Query().Paths.FirstOrDefault(p =>
+                    p.AdapterId == entry.AdapterId && p.SourceId == entry.SourceId);
+                if (path is null)
+                {
+                    // UC-12 edge case: unplugged during restore — skip, finish the rest.
+                    Log.Warn("DPI restore: source no longer present — skipping.", "Restore",
+                        ("adapterId", entry.AdapterId),
+                        ("sourceId", entry.SourceId.ToString()));
+                    continue;
+                }
+
+                DpiScale? scale = _dpi.Read(path);
+                bool ok = _dpi.SetPercentageAndVerify(path, entry.Percent, scale?.Value);
+                Log.Info("DPI restored", "Restore",
+                    ("step", "dpi"),
+                    ("adapterId", entry.AdapterId),
+                    ("sourceId", entry.SourceId.ToString()),
+                    ("percent", entry.Percent.ToString()),
+                    ("verified", ok.ToString()));
+            }
+            catch (Exception ex)
+            {
+                Log.Exception(ex, "Restore", ("step", "dpi"));
+            }
+        }
+    }
 
     /// <summary>UC-12 rule 11: counts a failed fix; enters safe mode at the threshold.</summary>
     private void NoteFailure(string reason)

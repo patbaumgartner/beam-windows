@@ -247,7 +247,8 @@ public sealed class CliApp
         }
 
         IReadOnlyList<NightLightSnapshot> snapshots = _nightLight.SnapshotAll();
-        _journal.BeginApply("cli-apply", snapshots);
+        IReadOnlyList<JournalDpiEntry>? dpiEntries = CaptureDpiEntries();
+        _journal.BeginApply("cli-apply", snapshots, dpiEntries);
 
         NightLightWriteResult nightLight = _nightLight.SetActive(false);
         string? modeError = _mode.ApplyCloneWith16x9();
@@ -282,6 +283,7 @@ public sealed class CliApp
     {
         JournalRecord? journal = _journal.Read();
         IReadOnlyList<NightLightSnapshot>? snapshots = JournalStore.RehydrateNightLight(journal);
+        IReadOnlyList<JournalDpiEntry>? dpiEntries = JournalStore.RehydrateDpi(journal);
 
         NightLightWriteResult nightLight;
         if (snapshots is { Count: > 0 })
@@ -298,6 +300,7 @@ public sealed class CliApp
         }
 
         string? modeError = _mode.Restore();
+        string dpiMessage = RestoreDpi(dpiEntries);
         _journal.Clear();
 
         if (options.Json)
@@ -308,11 +311,13 @@ public sealed class CliApp
                 success = modeError is null && nightLight.Success,
                 modeError,
                 nightLight = nightLight.Message,
+                dpi = dpiMessage,
             });
         }
         else
         {
             _out.WriteLine($"Display mode: {(modeError is null ? "restored" : modeError)}");
+            _out.WriteLine($"DPI: {dpiMessage}");
             _out.WriteLine($"Night Light: {nightLight.Message}");
         }
 
@@ -428,6 +433,61 @@ public sealed class CliApp
         }
 
         return active.FirstOrDefault(p => !p.Target.IsInternal) ?? active.FirstOrDefault();
+    }
+
+    /// <summary>Roadmap 1.9: captures the original DPI percent of the shared source before any mutation.</summary>
+    private IReadOnlyList<JournalDpiEntry>? CaptureDpiEntries()
+    {
+        try
+        {
+            DisplayPath? sharedSource = _topology.Query().ActivePaths.FirstOrDefault();
+            if (sharedSource is null)
+            {
+                return null;
+            }
+
+            DpiScale? scale = _dpi.Read(sharedSource);
+            if (scale?.Value is null)
+            {
+                return null;
+            }
+
+            return new[]
+            {
+                new JournalDpiEntry(sharedSource.AdapterId, sharedSource.SourceId, scale.Value.Current),
+            };
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Roadmap 1.9: restores the original DPI scales persisted in the journal.</summary>
+    private string RestoreDpi(IReadOnlyList<JournalDpiEntry>? entries)
+    {
+        if (entries is not { Count: > 0 })
+        {
+            return "left unchanged (no captured scale)";
+        }
+
+        foreach (JournalDpiEntry entry in entries)
+        {
+            DisplayPath? path = _topology.Query().Paths.FirstOrDefault(p =>
+                p.AdapterId == entry.AdapterId && p.SourceId == entry.SourceId);
+            if (path is null)
+            {
+                continue; // source unplugged mid-restore — skip, finish the rest
+            }
+
+            DpiScale? scale = _dpi.Read(path);
+            if (!_dpi.SetPercentageAndVerify(path, entry.Percent, scale?.Value))
+            {
+                return $"restore to {entry.Percent}% NOT verified";
+            }
+        }
+
+        return $"restored to {string.Join(", ", entries.Select(e => e.Percent + "%"))}";
     }
 
     private string ApplyOptimalDpi()
