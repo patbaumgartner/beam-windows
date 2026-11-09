@@ -4,8 +4,10 @@
 # brand colours (Pantone 638C #00AED8 fill, deep #0080B4 halo), so no tinting here.
 #
 # Outputs:
-#   ..\src\Beam.Tray\Assets\app.ico  multi-size icon (exe + installer icon)
-#   ..\assets\beam-256.png           plain-cyan 256 px mark (halo dropped)
+#   ..\src\Beam.Tray\Assets\app.ico        multi-size icon (exe + installer icon)
+#   ..\src\Beam.Tray\Assets\high-beam.png  512 px tray source mark (halo included;
+#                                          TrayService draws it pre-coloured at 48-96 px)
+#   ..\assets\beam-256.png                 plain-cyan 256 px mark (halo dropped)
 #
 # Rendering runs through render-icon.fsx (dotnet fsi + Svg.NET).
 
@@ -50,6 +52,14 @@ try {
     foreach ($img in $images) { $bw.Write($img.png) }
     $bw.Flush(); $bw.Close(); $fs.Close()
     Write-Output "Wrote $icoPath with $($images.Count) images, size $((Get-Item $icoPath).Length) bytes"
+
+    # Tray icon source: 512 px so the shell downscale to 48-96 px stays sharp.
+    # Halo included — TrayService draws the mark as rendered (no runtime tinting;
+    # GDI+ ImageAttributes colour matrices are not applied reliably by
+    # System.Drawing.Common, which is why the colours must be baked into the PNG).
+    $pngTray = Join-Path $PSScriptRoot "..\src\Beam.Tray\Assets\high-beam.png"
+    dotnet fsi $fsxPath -- --svg $svgPath --out $pngTray --size 512
+    if ($LASTEXITCODE -ne 0) { throw "render-icon.fsx failed for high-beam.png" }
 
     # Plain brand mark for docs/assets: 256 px, cyan only (no halo).
     $png256 = Join-Path $PSScriptRoot "..\assets\beam-256.png"

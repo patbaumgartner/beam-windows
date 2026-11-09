@@ -1,6 +1,5 @@
 using System.Drawing;
 using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
@@ -182,8 +181,14 @@ public sealed class TrayService : IDisposable
 
     /// <summary>
     /// The Beam brand mark — the "high beam" headlight icon by I Create Stuff from
-    /// The Noun Project (CC BY 3.0; see assets/ATTRIBUTION.md) — as a black silhouette
-    /// with an alpha channel, loaded once from the embedded resources.
+    /// The Noun Project (CC BY 3.0; see assets/ATTRIBUTION.md) — pre-coloured by
+    /// installer/generate-icon.ps1 from the vector source Assets/high-beam.svg:
+    /// Pantone 638C (#00AED8) fill over a deep #0080B4 halo. Loaded once from the
+    /// embedded resources.
+    ///
+    /// The colours are baked into the PNG on purpose: runtime recoloring via a GDI+
+    /// ImageAttributes colour matrix is silently ignored by System.Drawing.Common,
+    /// which is exactly how the tray ended up showing the old black mark.
     /// </summary>
     private static readonly Lazy<Bitmap> BrandMark = new(LoadBrandMark);
 
@@ -196,52 +201,22 @@ public sealed class TrayService : IDisposable
         return new Bitmap(stream);
     }
 
-    // Solid-tint attributes for recoloring the black silhouette while keeping its alpha:
-    // the colour matrix outputs a constant RGB per channel and passes alpha through.
-    private static readonly ImageAttributes BrandTint =
-        TintAttributes(Color.FromArgb(0x00, 0xAE, 0xD8)); // Pantone 638C
-    private static readonly ImageAttributes HaloTint =
-        TintAttributes(Color.FromArgb(0x00, 0x80, 0xB4)); // deeper 638C-tinted edge
-
-    private static ImageAttributes TintAttributes(Color color)
-    {
-        var matrix = new ColorMatrix
-        {
-            Matrix04 = color.R / 255f,
-            Matrix14 = color.G / 255f,
-            Matrix24 = color.B / 255f,
-            Matrix33 = 1f,
-            Matrix44 = 1f,
-        };
-        var attributes = new ImageAttributes();
-        attributes.SetColorMatrix(matrix);
-        return attributes;
-    }
-
     /// <summary>
     /// Draws the Beam high-beam icon into the given graphics context.
     ///
-    /// The mark (see <see cref="BrandMark"/>) is tinted at draw time: a deep-blue halo —
-    /// the silhouette scaled up slightly — sits behind the Pantone 638C fill so the mark
-    /// separates from pale (light-mode) taskbars, while the bright fill carries it on dark
-    /// ones.
+    /// The mark (see <see cref="BrandMark"/>) already carries the brand colours —
+    /// the deep halo separates it from pale (light-mode) taskbars while the bright
+    /// Pantone 638C fill carries it on dark ones — so it is drawn as rendered.
     /// </summary>
-    private static void DrawBeamIcon(Graphics g, int size)
+    internal static void DrawBeamIcon(Graphics g, int size)
     {
         var mark = BrandMark.Value;
 
         g.InterpolationMode = InterpolationMode.HighQualityBicubic;
         g.PixelOffsetMode = PixelOffsetMode.HighQuality;
 
-        // Halo — the silhouette drawn ~8% larger in the deep edge colour, centred.
-        float haloSize = size * 1.08f;
-        var haloRect = new Rectangle(
-            (int)((size - haloSize) / 2f), (int)((size - haloSize) / 2f), (int)haloSize, (int)haloSize);
-        g.DrawImage(mark, haloRect, 0, 0, mark.Width, mark.Height, GraphicsUnit.Pixel, HaloTint);
-
-        // Brand fill — Pantone 638C.
-        var rect = new Rectangle(0, 0, size, size);
-        g.DrawImage(mark, rect, 0, 0, mark.Width, mark.Height, GraphicsUnit.Pixel, BrandTint);
+        g.DrawImage(mark, new Rectangle(0, 0, size, size),
+            0, 0, mark.Width, mark.Height, GraphicsUnit.Pixel);
     }
 
     private ContextMenuStrip BuildMenu()

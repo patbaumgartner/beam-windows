@@ -17,9 +17,12 @@ The SVG is the single source of truth for every raster asset; nothing is hand-ed
 the rasters:
 
 - `installer/generate-icon.ps1` (via `installer/render-icon.fsx`, Svg.NET) renders it into
-  the multi-size `src/Beam.Tray/Assets/app.ico` (exe icon + installer icon) and into
-  `assets/beam-256.png` (plain cyan, halo dropped).
-- The tray app embeds the SVG and renders it at runtime for the NotifyIcon
-  (`TrayService.RenderBrandMark`).
+  the multi-size `src/Beam.Tray/Assets/app.ico` (exe icon + installer icon), the 512 px
+  `src/Beam.Tray/Assets/high-beam.png` (halo included), and `assets/beam-256.png`
+  (plain cyan, halo dropped).
+- The tray app embeds the pre-coloured `high-beam.png` and draws it for the NotifyIcon
+  (`TrayService.DrawBeamIcon`) — the colours are baked into the raster because GDI+
+  `ImageAttributes` colour matrices are silently ignored by System.Drawing.Common, so
+  runtime tinting does not work.
 
 CC BY 3.0 requires attribution: this file plus the credit in `README.md`.

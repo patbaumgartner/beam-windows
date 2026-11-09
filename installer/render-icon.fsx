@@ -2,7 +2,7 @@
 
 // Renders the Beam brand SVG (src/Beam.Tray/Assets/high-beam.svg) to PNG rasters
 // with Svg.NET, so the vector file stays the single source of truth for every
-// raster icon (app.ico entries, assets/beam-256.png).
+// raster icon (app.ico entries, src/Beam.Tray/Assets/high-beam.png, assets/beam-256.png).
 //
 // Usage (args after `--`):
 //   dotnet fsi render-icon.fsx -- --svg <file.svg> --out <file.png> --size 256 [--no-halo]
