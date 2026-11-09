@@ -3,6 +3,7 @@ using System.Drawing.Drawing2D;
 using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows.Forms;
+using Beam.App.Diagnostics;
 using Beam.App.Presentation;
 using Beam.App.Sessions;
 using Beam.Core.Diagnostics;
@@ -373,10 +374,10 @@ public sealed class TrayService : IDisposable
         logsItem.Click += (_, _) =>
         {
             Log.Info("Open log folder requested from tray menu", "Tray",
-                ("dir", AppLog.LogDirectory));
+                ("dir", FileLogSink.DefaultDirectory));
             try
             {
-                System.Diagnostics.Process.Start("explorer.exe", AppLog.LogDirectory);
+                System.Diagnostics.Process.Start("explorer.exe", FileLogSink.DefaultDirectory);
             }
             catch (Exception ex)
             {
