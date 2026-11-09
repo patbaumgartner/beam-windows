@@ -176,7 +176,9 @@ Run before a release and record the result in the release notes or pull request.
 
 The tray is manual because it needs Explorer, the notification area and real mouse input:
 
-1. Launch from a terminal: icon appears, startup balloon is correct.
+1. Launch from a terminal: the tray icon appears showing the cyan high-beam mark
+   (Pantone 638C over the deep halo — not the old black logo; pinned by
+   `TrayIconTests`), and the startup balloon is correct.
 2. Right-click the icon: menu opens immediately; hover every item; the cursor stays an
    arrow. Repeat ten times, including while a session change is in flight.
 3. Click **Launch at sign-in** on and off: the installer's `--hidden` value is recognised,

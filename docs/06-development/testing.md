@@ -11,10 +11,10 @@ Beam's test suite is split along the same lines as the production code. The rule
 | `tests/Beam.App.Tests` | `net10.0` | Session state machine, presentation sequencing, journal, file log sink — all through fake ports |
 | `tests/Beam.Windows.Tests` | `net10.0-windows` | 16:9 mode ranking, LUID/rational helpers, DEVMODE construction, display-monitor polling contract + stress |
 | `tests/Beam.Cli.Tests` | `net10.0-windows` | Argument parsing, every command, exit codes, JSON shape |
-| `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, concurrency stress |
+| `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, brand-icon colours, concurrency stress |
 | `tests/Beam.Architecture.Tests` | `net10.0` | Project-reference and portability rules from [architecture.md](architecture.md), composition-root binary-name collision guard |
 
-Current totals: **550 tests**. Run them with:
+Current totals: **574 tests**. Run them with:
 
 ```powershell
 dotnet test Beam.sln -c Release

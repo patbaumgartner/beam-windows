@@ -23,6 +23,15 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
 ## [Unreleased]
 
 ### Fixed
+- **The tray icon now actually shows the new cyan high-beam mark.** The embedded
+  `high-beam.png` was a black silhouette that `TrayService` recoloured at draw time with
+  a GDI+ `ImageAttributes` colour matrix — but `System.Drawing.Common` silently ignores
+  colour matrices on `DrawImage`, so the tray (and the exe icon) rendered the old black
+  logo. All rasters (`app.ico`, `high-beam.png`, `assets/beam-256.png`) are now generated
+  pre-coloured in Pantone 638C from `high-beam.svg` by `installer/generate-icon.ps1`, and
+  `DrawBeamIcon` draws the mark as rendered. New `TrayIconTests` pin the cyan fill and
+  halo in the embedded assets and in the drawn icon at 48/64/96 px, so a black icon can
+  never ship again.
 - **DPI step parser crashed on driver-supplied extremes.** `DpiScale.From` called
   `Math.Abs` on `minRel`, which throws `OverflowException` for `int.MinValue`, and
   computed `minStep + max` in `int`, which can overflow to a negative ladder index and
@@ -72,10 +81,11 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
 - **New high-beam brand icon, now a scalable SVG** (tray + exe + installer): the Noun
   Project "high beam" headlight in Pantone 638C (`#00AED8`) over a deep `#0080B4` halo,
   redrawn as vector shapes with thicker strokes so it stays readable at 16 px. The SVG
-  (`src/Beam.Tray/Assets/high-beam.svg`) is the single source of truth — the tray renders
-  it at runtime via Svg.NET at the shell's DPI size (`TrayService.RenderBrandMark`), and
-  `installer/generate-icon.ps1` (through `installer/render-icon.fsx`) rasterises it into
-  the multi-size `app.ico`. Reads on both light and dark taskbars.
+  (`src/Beam.Tray/Assets/high-beam.svg`) is the single source of truth —
+  `installer/generate-icon.ps1` (through `installer/render-icon.fsx`, Svg.NET)
+  rasterises it pre-coloured into the multi-size `app.ico`, the 512 px
+  `high-beam.png` the tray draws at the shell's DPI size, and `assets/beam-256.png`.
+  Reads on both light and dark taskbars.
 - **Decoupled into five projects.** The presentation engine moved from inside the tray
   into a UI-free `Beam.App` layer (net10.0) that talks only to ports declared in
   `Beam.Core.Ports`. `Beam.Windows` is now the single home for Win32/WinRT adapters;
@@ -109,7 +119,8 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   500 seeded mutants, exhaustive state-machine matrix tests, error-injection tests for
   every presentation dependency, journal crash-safety (corrupt/truncated/concurrent),
   CLI parser adversarial cases, and a no-monitor-connected contract suite covering
-  every command with zero displays attached.- `DisplayMonitor` lifecycle is now explicit: `Stop()`/`Dispose()` are idempotent and
+  every command with zero displays attached.
+- `DisplayMonitor` lifecycle is now explicit: `Stop()`/`Dispose()` are idempotent and
   terminal, `Start()` after dispose throws.
 - Stress and interaction suites: `tests/Beam.App.Tests/SoakTests.cs` (500-cycle
   apply/restore soak with 0 black screens and 500/500 valid end states; UC-12
