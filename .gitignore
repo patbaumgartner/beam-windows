@@ -17,9 +17,6 @@ TestResults/
 *.userosscache
 *.sln.docstates
 
-# Rider
-.idea/
-
 # Environment
 .env
 .env.*

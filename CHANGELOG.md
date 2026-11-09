@@ -142,6 +142,14 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   machine, the tray menu with contextual enable/disable, and a before/after of the
   black-bar problem — embedded in the README.
 
+### Removed
+- Dead code sweep: `src/Beam.Tray/AppLog.cs` (a duplicate of `Beam.App`'s `FileLogSink`;
+  all logging already went through `Beam.Core.Diagnostics.Log` — the log folder path now
+  comes from `FileLogSink.DefaultDirectory`), the unreferenced `docs/media/*.png`
+  screenshots, the unused `Svg` central package version, the duplicate `.idea/` entry in
+  `.gitignore`, and the redundant copy-to-output of the tray assets in `Beam.Tray.csproj`
+  (both are embedded resources and are only ever loaded as such).
+
 
 ## [0.1.0] — 2026-10-31
 
