@@ -19,21 +19,28 @@ public sealed class FileLogSink : ILogSink
 {
     private static readonly object WriteLock = new();
 
+    private readonly string _logDir;
     private readonly string _logFile;
     private readonly string _detailedFile;
     private readonly bool _alsoWriteToConsole;
 
+    /// <summary>Default log directory: <c>%LOCALAPPDATA%\Beam</c>.</summary>
+    public static string DefaultDirectory => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        "Beam");
+
     public FileLogSink(string? dir = null, bool alsoWriteToConsole = false)
     {
-        dir ??= Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "Beam");
-        Directory.CreateDirectory(dir);
+        _logDir = dir ?? DefaultDirectory;
+        Directory.CreateDirectory(_logDir);
 
-        _logFile = Path.Combine(dir, "beam.log");
-        _detailedFile = Path.Combine(dir, "beam-detailed.jsonl");
+        _logFile = Path.Combine(_logDir, "beam.log");
+        _detailedFile = Path.Combine(_logDir, "beam-detailed.jsonl");
         _alsoWriteToConsole = alsoWriteToConsole;
     }
+
+    /// <summary>Directory holding <c>beam.log</c> and <c>beam-detailed.jsonl</c>.</summary>
+    public string LogDirectory => _logDir;
 
     /// <summary>Full path to the human-readable log file.</summary>
     public string LogPath => _logFile;
