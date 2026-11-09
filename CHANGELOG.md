@@ -148,7 +148,9 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   comes from `FileLogSink.DefaultDirectory`), the unreferenced `docs/media/*.png`
   screenshots, the unused `Svg` central package version, the duplicate `.idea/` entry in
   `.gitignore`, and the redundant copy-to-output of the tray assets in `Beam.Tray.csproj`
-  (both are embedded resources and are only ever loaded as such).
+  (both are embedded resources and are only ever loaded as such) — plus the never-called
+  `FileLogSink.LogDirectory` instance property, `NightLightEntry.IsValid`, and an unused
+  `using` in `IJournalStore.cs`.
 
 
 ## [0.1.0] — 2026-10-31

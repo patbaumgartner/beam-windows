@@ -1,4 +1,3 @@
-using Beam.Core.Display;
 using Beam.Core.NightLight;
 
 namespace Beam.App.Journal;

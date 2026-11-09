@@ -39,9 +39,6 @@ public sealed class FileLogSink : ILogSink
         _alsoWriteToConsole = alsoWriteToConsole;
     }
 
-    /// <summary>Directory holding <c>beam.log</c> and <c>beam-detailed.jsonl</c>.</summary>
-    public string LogDirectory => _logDir;
-
     /// <summary>Full path to the human-readable log file.</summary>
     public string LogPath => _logFile;
 
