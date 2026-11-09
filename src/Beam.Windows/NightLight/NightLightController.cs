@@ -10,10 +10,7 @@ public sealed record NightLightEntry(
     string ValueName,
     byte[]? RawBytes,
     NightLightState? State,
-    string? Error)
-{
-    public bool IsValid => State is not null;
-}
+    string? Error);
 
 /// <summary>
 /// Reads and writes the real Windows Night Light toggle through the per-user CloudStore.
