@@ -48,9 +48,64 @@ switch (command)
 
         return ApplyMode(inventory, args[1], rw, rh, yes);
 
+    case "cycle":
+        if (args.Length < 2 || !int.TryParse(args[1], out int cycles) || cycles <= 0)
+        {
+            Console.Error.WriteLine("Usage: cycle <N> [--yes]");
+            Console.Error.WriteLine("Run again with --yes to proceed.");
+            return 2;
+        }
+
+        if (!yes)
+        {
+            Console.Error.WriteLine($"This runs {cycles} clone+16:9 → restore cycles against the real display hardware (S6/G3 soak).");
+            Console.Error.WriteLine("Each cycle flashes the screen black for about a second. Run again with --yes to proceed.");
+            return 2;
+        }
+
+        return RunCycles(inventory, cycles);
+
     default:
-        Console.Error.WriteLine("Usage: S6.DuplicateApply <snapshot|clone|restore|mode <gdi> <WxH>> [--yes]");
+        Console.Error.WriteLine("Usage: S6.DuplicateApply <snapshot|clone|restore|mode <gdi> <WxH>|cycle <N>> [--yes]");
         return 2;
+}
+
+// Hardware soak (S6 / G3): N apply/restore cycles through the production
+// DisplayModeController. A cycle is valid when both calls succeed and the display
+// enumeration is sane afterwards (active paths with a real source mode) — an invalid
+// cycle is what a black screen looks like from software.
+static int RunCycles(DisplayInventory inventory, int cycles)
+{
+    var controller = new DisplayModeController();
+    int valid = 0;
+
+    for (int i = 1; i <= cycles; i++)
+    {
+        string? applyError = controller.ApplyCloneWith16x9();
+        bool applyOk = applyError is null && IsEnumerationValid(inventory.Query());
+        string? restoreError = controller.Restore();
+        bool restoreOk = restoreError is null && IsEnumerationValid(inventory.Query());
+
+        if (applyOk && restoreOk)
+        {
+            valid++;
+            Console.WriteLine($"cycle {i}/{cycles}: OK");
+        }
+        else
+        {
+            Console.Error.WriteLine($"cycle {i}/{cycles}: INVALID apply='{applyError ?? "ok"}' restore='{restoreError ?? "ok"}'");
+            Print(inventory.Query());
+        }
+    }
+
+    Console.WriteLine($"\nSoak result: {valid}/{cycles} cycles valid, {cycles - valid} invalid.");
+    return valid == cycles ? 0 : 1;
+}
+
+static bool IsEnumerationValid(DisplayTopology topology)
+{
+    var active = topology.ActivePaths.ToList();
+    return active.Count > 0 && active.All(p => p.SourceMode is { Width: > 0, Height: > 0 });
 }
 
 static int ApplyMode(DisplayInventory inventory, string gdi, uint width, uint height, bool yes)

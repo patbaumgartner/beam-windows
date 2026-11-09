@@ -30,21 +30,21 @@ restore + safety + tray.
 | 1.3 | Presentation trigger (external + aspect mismatch) | UC-02 | **code-complete** `PresentationManager.IsTriggerConditionMet` + monitor |
 | 1.4 | `ModePlanner` + `DisplayModeController` (test/apply/verify) | UC-03 | **code-complete** (S6 + DisplayModeController) |
 | 1.5 | Clone planner + shared-source apply + verify all targets | UC-04 | **code-complete** (S6) — real-hardware PASS |
-| 1.6 | `DpiController` (`-3`/`-4`) + `ScalePlanner` + verify | UC-05 | read+planner PASS (S4); set pending |
+| 1.6 | `DpiController` (`-3`/`-4`) + `ScalePlanner` + verify | UC-05 | **DONE** — read+planner PASS (S4); set path implemented (`DpiController.SetPercentageAndVerify`, wired into `PresentationManager.ApplyDpi` + CLI `dpi set`) |
 | 1.7 | `NightLightController` (parse/write/verify/snapshot) | UC-06 | **PASS** (S1) + wired into Beam.Tray |
 | 1.8 | Journal + `SessionManager` state machine | UC-11 | **code-complete** `SessionManager` in Beam.Tray |
-| 1.9 | Restore planner + "still ours" (mode, DPI, bytes) | UC-07 | mode+NightLight restore code-complete; DPI restore pending |
-| 1.10 | Mutation gate + guardrails + safe mode | UC-12 | |
+| 1.9 | Restore planner + "still ours" (mode, DPI, bytes) | UC-07 | **DONE** — mode+NightLight restore code-complete; **DPI restore implemented** (capture original DPI before apply, restore on unplug/recovery, persisted in journal for crash recovery) |
+| 1.10 | Mutation gate + guardrails + safe mode | UC-12 | **DONE** — SemaphoreSlim gate, CDS_TEST, snapshot-before-mutate, verify-after-mutate, bounded attempts, self-change suppression, safe mode after 2 failures; **safe mode surfaced in tray** with warning balloon (UC-12 AC5) | |
 | 1.11 | Tray icon, menu, hotkey, pause | UC-08 | **DONE 2026-10-31** — WinForms MVP: responsive menu, Pause/Resume, Apply/Restore, Launch at sign-in. **2026-11-01:** laser-beam tray/exe icon in Pantone 638C + white (light/dark readable), startup toggle now matches the installer's `--hidden` value and gives balloon feedback, pause/resume label stays in sync with session state, sign-in checkbox re-read on menu open |
-| 1.12 | Toast + undo | UC-09 | |
-| 1.13 | Minimal settings (enable, policy, night light, startup) | UC-15 (partial) | |
-| 1.14 | Simulation test suite + S6 run | — | |
+| 1.12 | Toast + undo | UC-09 | **DONE (undo only)** — "Undo projector mode" tray menu item reverses an active fix (restores mode + DPI + Night Light), enabled whenever a fix is active; wired to `RestoreNowAsync`. Toast notifications skipped per product decision. | |
+| 1.13 | Minimal settings (enable, policy, night light, startup) | UC-15 (partial) | **DONE** — "Enable Beam" master switch, "Night Light" manual on/off toggle, "Policy" submenu (control display mode / DPI / Night Light), plus existing "Launch at sign-in". `PresentationManager.IsEnabled`, `UseMode`, `UseDpi`, `UseNightLight` + `SetNightLight(bool)` gating the fix sequence per policy. | |
+| 1.14 | Simulation test suite + S6 run | — | **DONE 2026-11-08** — `tests/Beam.App.Tests/SoakTests.cs` (500-cycle soak, 0 black screens, 500/500 valid end states; UC-12 random-fault property; unplug 20/20; ≤1 apply per attach; kill-at-20-points) + `tests/Beam.Windows.Tests/DisplayModeControllerPropertyTests.cs` (UC-12 property) + extended `DisplayMonitorStressTests.cs` (UC-01 AC2/AC3, S5 p95) | |
 
 **Exit criteria**
 - Duplicate a 1080p projector from the 3840x2400 @ 200% laptop: 1920x1080 @ 100%, **no
   black bars on the projector**, Night Light off, toast, undo.
 - Extend to the same projector: projector at 1920x1080, laptop untouched.
-- Unplug: exact restore of mode + scale + Night Light bytes, verified 20/20.
+- Unplug: exact restore of mode + scale + DPI + Night Light bytes, verified 20/20.
 - Kill -9 at 20 points: next start always valid.
 - 500-cycle S6 clean.
 - Idle CPU < 0.1%.

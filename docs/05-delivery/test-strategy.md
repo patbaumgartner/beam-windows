@@ -74,12 +74,61 @@ include:
 - DPI read/write failure,
 - disconnect arriving while a fix is still running.
 
-### 2.6 What is not simulated yet
+### 2.6 Simulation through fakes
 
-The original plan listed property-based tests and fault injection for every native call.
-Neither is implemented. The fakes already support failure injection where it matters (the
-sequencing tests); a property-based suite for the Night Light codec is a reasonable
-follow-up, not a current claim.
+`tests/Beam.App.Tests/Fakes.cs` provides a complete in-memory implementation of every port
+plus `PresentationHarness`, which exposes call counts and ordering. Scenarios covered
+include:
+
+- happy path: plug in → apply → active → unplug → restore → idle,
+- no trigger when extended, when aspects match, or when only the internal panel is present,
+- user pause (automatic trigger ignored) and resume,
+- `ApplyNow` as a deliberate manual override,
+- journal write failure and recovery on the next launch,
+- Night Light write/snapshot failure,
+- DPI read/write failure,
+- disconnect arriving while a fix is still running.
+
+### 2.7 Mutation testing
+
+Beam includes a Roslyn-based mutation tester (`eng/MutationTester/`) that applies small
+semantic mutations to source files and runs the test suite against each mutant:
+
+- **Killed mutants** — tests fail, meaning the change is caught (good).
+- **Surviving mutants** — tests pass despite the change, indicating either a weak test
+  ("evergreen test") or dead code that nothing exercises.
+
+Run with:
+
+```powershell
+pwsh eng/mutation-test.ps1 -SourceProject src/Beam.Core/Beam.Core.csproj -TestProject tests/Beam.Core.Tests/Beam.Core.Tests.csproj
+```
+
+Exit code is non-zero when any mutants survive.
+
+
+### 2.8 Soak, property, and fault-injection tests
+
+`tests/Beam.App.Tests/SoakTests.cs` carries the long-running, deterministic acceptance
+scenarios (no bare sleeps; fakes; seeded RNG; polling helpers):
+
+- **S6 / UC-12 AC1-AC2 — 500-cycle apply/restore soak:** 0 black screens,
+  500/500 valid end states, exactly one apply and one restore per cycle.
+- **UC-12 property test:** for random mode lists and random injected apply failures,
+  the end state after every cycle is always a member of the original mode list
+  (`Beam.Windows.Tests/DisplayModeControllerPropertyTests.cs` at the controller level;
+  safe-mode streak tracking at the manager level in `SoakTests.cs`).
+- **UC-01 AC2 — plug/unplug:** 30 cycles, exactly one event per physical action.
+- **UC-01 AC3 — no event storm:** ≤ 2 events per physical action (KVM bounce
+  coalesces within one poll interval).
+- **S5 — detection:** p95 ≤ 1.5 s over 30 plug/unplug cycles, 0 missed, ≤ 1 apply
+  per attach (`DisplayMonitorStressTests.cs` measures change→event latency itself).
+- **Roadmap Phase-1 exit:** unplug restore 20/20; kill -9 at 20 points → the next
+  start is always valid (journal-only survival); 500-cycle S6 clean.
+
+Fault injection is exercised at every sequencing step (Night Light, mode, DPI, journal)
+via the fakes' `ApplyResult`/`RestoreResult` and `BeforeCall` hooks; a killed process
+survives with only the journal, and recovery restores exactly what was left applied.
 
 ## 3. Coverage
 
@@ -92,14 +141,14 @@ pwsh eng/coverage.ps1 -Enforce     # fail below the gate (used by CI)
 The script unions the Cobertura reports from every test project, so a line counts as
 covered if any project exercised it.
 
-| Assembly | Current (2026-11-07) | Gate |
+| Assembly | Current (2026-11-08) | Gate |
 |---|---|---|
-| `Beam.Core` | 382 / 400 = 95.5% | ≥ 85% |
-| `Beam.App` | 409 / 423 = 96.7% | ≥ 80% |
+| `Beam.Core` | 381 / 400 = 95.2% | ≥ 85% |
+| `Beam.App` | 462 / 474 = 97.5% | ≥ 80% |
 | `Beam.Cli` | 247 / 305 = 81.0% | ≥ 75% |
-| `Beam.Windows` | 99 / 598 = 16.6% | reported only |
-| `Beam.Tray` | 12 / 482 = 2.5% | reported only |
-| Overall | 1149 / 2208 = 52.0% | — |
+| `Beam.Windows` | 108 / 611 = 17.7% | reported only |
+| `Beam.Tray` | 12 / 458 = 2.6% | reported only |
+| Overall | 1210 / 2248 = 53.8% | — |
 
 The gate is a regression alarm, not a target. A change that lowers Core or App coverage by
 more than a rounding error needs a justification in the pull request.

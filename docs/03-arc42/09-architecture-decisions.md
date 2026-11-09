@@ -17,6 +17,8 @@ Full records live in `../04-adr/`.
 | ADR-0011 | Name: Beam | Accepted | Low |
 | ADR-0012 | MIT license | Accepted | Low |
 | ADR-0013 | DPI via source device-info `-3`/`-4` | Accepted (validated by S4) | High |
+| ADR-0014 | UI-free application layer and port boundary | Accepted | High |
+| ADR-0015 | Detection polling and bounded-time deviation (amends ADR-0007) | Accepted | Medium |
 
 ## Decision dependencies
 
@@ -31,6 +33,7 @@ ADR-0001 (upstream)
   +-- ADR-0006 (night light)
   |     +-- ADR-0010 (privacy)
   +-- ADR-0007 (detection)
+    +-- ADR-0015 (detection polling deviation, amends ADR-0007)
   +-- ADR-0013 (DPI)
 ```
 

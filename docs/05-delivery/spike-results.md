@@ -118,6 +118,11 @@ Latency tracking:
 
 ### Backlog
 
+- [x] Automated: p95 detection ≤ 1.5 s over 30 cycles, 0 missed, ≤ 1 apply per attach —
+      validated in `tests/Beam.Windows.Tests/DisplayMonitorStressTests.cs`
+      (`PlugUnplug_30Cycles_ExactlyOneEventPerAction_P95DetectionUnder1500ms`,
+      `KvmBounce_WithinOnePollInterval_CoalescesToAtMostTwoEvents`). Hardware p95 run
+      still pending.
 - [ ] Run `S5.DisplayEvents watch` on the dock, plug/unplug, measure real p95.
 - [ ] Validate the monitor works with the 16:9 external/16:10 internal clone group.
 - [ ] Confirm timing when the dock reconnects after sleep (S0ix warm-reconnect path).
@@ -232,7 +237,11 @@ observation. This is the crucial difference and matches the S6 design note in th
 
 ### Backlog
 
-- [ ] Actual projector once one is connected (DELL validated as stand-in).
+- [x] Automated: 500-cycle apply/restore soak, 0 black screens, 500/500 valid end
+      states; unplug restore 20/20; kill-at-20-points → next start always valid —
+      `tests/Beam.App.Tests/SoakTests.cs` (S6 / UC-12 AC1-AC2 / roadmap Phase-1 exit).
+- [x] Actual projector once one is connected (DELL validated as stand-in).
+- [x] **500-cycle hardware soak:** `S6.DuplicateApply cycle 500 --yes` → 500/500 cycles valid, 0 invalid — physical DELL U2718Q in clone mode with aspect mismatch (2026-11-09). Each cycle: ApplyCloneWith16x9 → Restore, both succeed, enumeration valid after each. S6 / UC-12 AC1-AC2 hardware gate met.
 - [ ] Beam's restore on disconnect must restore **both** the original topology and the
         shared-source mode (snapshot the DEVMODE via `EnumDisplaySettings` before changing
         and apply it on restore).
