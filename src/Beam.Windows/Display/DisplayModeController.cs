@@ -98,49 +98,83 @@ public sealed class DisplayModeController : IDisplayModeController
             ("candidateCount", ranked.Count),
             ("candidates", string.Join(", ", ranked.Select(m => $"{m.Width}x{m.Height}@{m.RefreshHz}Hz"))));
 
-        foreach (DisplayMode mode in ranked)
+        DisplayMode? applied = SelectFirstAccepted(ranked, mode => TryApplyMode(gdi, mode));
+
+        if (applied is not null)
         {
-            var devMode = DisplayInventory.NewDevMode();
-            devMode.dmPelsWidth = mode.Width;
-            devMode.dmPelsHeight = mode.Height;
-            devMode.dmDisplayFrequency = (uint)Math.Round(mode.RefreshHz);
-            devMode.dmFields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-
-            int cds = ChangeDisplaySettingsEx(gdi, ref devMode, IntPtr.Zero, CdsTest, IntPtr.Zero);
-            Log.Info("CDS test", "DisplayMode",
-                ("gdiName", gdi),
-                ("mode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"),
-                ("result", cds.ToString()));
-
-            if (cds == DispChangeSuccessful)
-            {
-                cds = ChangeDisplaySettingsEx(gdi, ref devMode, IntPtr.Zero, CdsUpdateRegistry, IntPtr.Zero);
-                Log.Info("CDS apply", "DisplayMode",
-                    ("gdiName", gdi),
-                    ("mode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"),
-                    ("result", cds.ToString()),
-                    ("registry", "updated"));
-
-                if (cds == DispChangeSuccessful)
-                {
-                    Log.Info("16:9 mode applied successfully", "DisplayMode",
-                        ("gdiName", gdi),
-                        ("appliedMode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"));
-                    return null; // Success.
-                }
-
-                // UC-12 rule 5: a rejected apply is not fatal — try the next candidate.
-                Log.Warn("CDS apply failed — trying next candidate", "DisplayMode",
-                    ("gdiName", gdi),
-                    ("mode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"),
-                    ("result", cds.ToString()));
-            }
+            return null; // Success.
         }
 
         Log.Error("No supported 16:9 mode found for the shared source.", "DisplayMode",
             ("gdiName", gdi),
             ("triedModes", ranked.Count.ToString()));
         return "No supported 16:9 mode found for the shared source.";
+    }
+
+    /// <summary>
+    /// Returns the first candidate the driver accepts, or null when none is accepted.
+    /// The result is always null or a member of <paramref name="ranked"/> — never a mode
+    /// outside the candidate list. Pure helper, property tested.
+    /// </summary>
+    internal static DisplayMode? SelectFirstAccepted(IReadOnlyList<DisplayMode> ranked, Func<DisplayMode, bool> tryApply)
+    {
+        ArgumentNullException.ThrowIfNull(ranked);
+        ArgumentNullException.ThrowIfNull(tryApply);
+
+        foreach (DisplayMode mode in ranked)
+        {
+            if (tryApply(mode))
+            {
+                return mode;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Tries one candidate mode: CDS test first, then CDS apply with registry persist.
+    /// Returns true when the driver accepted and applied the mode.
+    /// </summary>
+    private static bool TryApplyMode(string gdi, DisplayMode mode)
+    {
+        var devMode = DisplayInventory.NewDevMode();
+        devMode.dmPelsWidth = mode.Width;
+        devMode.dmPelsHeight = mode.Height;
+        devMode.dmDisplayFrequency = (uint)Math.Round(mode.RefreshHz);
+        devMode.dmFields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
+
+        int cds = ChangeDisplaySettingsEx(gdi, ref devMode, IntPtr.Zero, CdsTest, IntPtr.Zero);
+        Log.Info("CDS test", "DisplayMode",
+            ("gdiName", gdi),
+            ("mode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"),
+            ("result", cds.ToString()));
+
+        if (cds == DispChangeSuccessful)
+        {
+            cds = ChangeDisplaySettingsEx(gdi, ref devMode, IntPtr.Zero, CdsUpdateRegistry, IntPtr.Zero);
+            Log.Info("CDS apply", "DisplayMode",
+                ("gdiName", gdi),
+                ("mode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"),
+                ("result", cds.ToString()),
+                ("registry", "updated"));
+
+            if (cds == DispChangeSuccessful)
+            {
+                Log.Info("16:9 mode applied successfully", "DisplayMode",
+                    ("gdiName", gdi),
+                    ("appliedMode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"));
+                return true;
+            }
+
+            // UC-12 rule 5: a rejected apply is not fatal — try the next candidate.
+            Log.Warn("CDS apply failed — trying next candidate", "DisplayMode",
+                ("gdiName", gdi),
+                ("mode", $"{mode.Width}x{mode.Height}@{mode.RefreshHz}Hz"),
+                ("result", cds.ToString()));
+        }
+
+        return false;
     }
 
     /// <summary>UC-12 rule 5: bounds the ranked candidate list. Pure helper, unit tested.</summary>

@@ -69,11 +69,13 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   directly.
 
 ### Changed
-- **New laser-beam brand icon** (tray + exe + installer): a stylised laser cone in
-  Pantone 638C (`#00AED8`) with a white hot core and a deep-blue edge, drawn as a filled
-  polygon so it survives downscaling. Reads on both light and dark taskbars. Applies to
-  the runtime tray icon (`TrayService.DrawProjectorIcon`) and the multi-size
-  `app.ico` (`installer/generate-icon.ps1`).
+- **New high-beam brand icon, now a scalable SVG** (tray + exe + installer): the Noun
+  Project "high beam" headlight in Pantone 638C (`#00AED8`) over a deep `#0080B4` halo,
+  redrawn as vector shapes with thicker strokes so it stays readable at 16 px. The SVG
+  (`src/Beam.Tray/Assets/high-beam.svg`) is the single source of truth — the tray renders
+  it at runtime via Svg.NET at the shell's DPI size (`TrayService.RenderBrandMark`), and
+  `installer/generate-icon.ps1` (through `installer/render-icon.fsx`) rasterises it into
+  the multi-size `app.ico`. Reads on both light and dark taskbars.
 - **Decoupled into five projects.** The presentation engine moved from inside the tray
   into a UI-free `Beam.App` layer (net10.0) that talks only to ports declared in
   `Beam.Core.Ports`. `Beam.Windows` is now the single home for Win32/WinRT adapters;
@@ -102,18 +104,21 @@ Current version is **0.1.1** (per `installer/build.ps1` default).
   model, topology ids and trigger condition (`Beam.Core.Tests/DisplayModelTests.cs`).
 - **330 tests** across six test projects (was 100-odd across Core + tray), including a
   guard against composition-root binary name collisions.
-- **519 tests** after the deep-testing push: property-style suites (scale planner,
+- **550 tests** after the deep-testing push: property-style suites (scale planner,
   topology invariants), an exhaustive single-byte fuzz of the Night Light codec plus
   500 seeded mutants, exhaustive state-machine matrix tests, error-injection tests for
   every presentation dependency, journal crash-safety (corrupt/truncated/concurrent),
   CLI parser adversarial cases, and a no-monitor-connected contract suite covering
   every command with zero displays attached.- `DisplayMonitor` lifecycle is now explicit: `Stop()`/`Dispose()` are idempotent and
   terminal, `Start()` after dispose throws.
-- Stress and interaction suites: `Beam.App.Tests/StressTests.cs` (burst display changes,
-  concurrent `ApplyNow`/`RestoreNow` through the gate, repeated apply→restore cycles,
-  session state-machine races), `Beam.Windows.Tests/DisplayMonitorStressTests.cs` (real
-  polling loop vs. scripted hardware, p95 latency bound, transient capture failures),
-  and `Beam.Tray.Tests/TrayInteractionTests.cs` + concurrency tests in
+- Stress and interaction suites: `tests/Beam.App.Tests/SoakTests.cs` (500-cycle
+  apply/restore soak with 0 black screens and 500/500 valid end states; UC-12
+  random-fault property; unplug restore 20/20; kill -9 at 20 points → next start
+  always valid), `tests/Beam.Windows.Tests/DisplayModeControllerPropertyTests.cs`
+  (UC-12 property: end state is always a member of the original mode list), and the
+  extended `tests/Beam.Windows.Tests/DisplayMonitorStressTests.cs` (real polling loop
+  vs. scripted hardware: UC-01 AC2/AC3, S5 p95 detection ≤ 1.5 s, KVM-bounce
+  coalescing), plus `Beam.Tray.Tests/TrayInteractionTests.cs` and concurrency tests in
   `SessionManagerTests.cs` (tray text/labels, startup Run-key round-trip, cursor-guard
   lifecycle, exactly-one-winner `TryBeginFix`).
 - Tray context menu: **Open log folder** item (opens `%LOCALAPPDATA%\Beam` so

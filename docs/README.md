@@ -66,7 +66,7 @@ beam/
   03-arc42/
     01 .. 12                    arc42 chapters
   04-adr/
-    ADR-0001 .. ADR-0014        architecture decisions (status varies: see each ADR)
+    ADR-0001 .. ADR-0015        architecture decisions (status varies: see each ADR)
   05-delivery/
     roadmap.md                  phases, exit criteria, definition of done
     upstream-plan.md            issue text, spec outline, PR sequencing

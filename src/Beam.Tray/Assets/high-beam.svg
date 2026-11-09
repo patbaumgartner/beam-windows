@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="280" height="280" viewBox="0 0 280 280">
+  <!--
+    Beam brand mark — "high beam" headlight icon by I Create Stuff, The Noun Project
+    (CC BY 3.0, https://thenounproject.com/icon/high-beam-497871/), adapted:
+    redrawn as scalable vector shapes measured from the upstream 512 px PNG,
+    recoloured to the brand cyan Pantone 638C (#00AED8) with a deep #0080B4 halo,
+    and thickened (bar height 16→20, ring 15.5→21.5 in source units) so the icon
+    stays readable at 16 px. See assets/ATTRIBUTION.md.
+
+    Geometry is authored in the upstream 512 px coordinate space (glyph bbox
+    x 151..360, y 182..330, headlight centre (289, 255.5)); the glyph group maps
+    it into the 280x280 canvas at ~90% fill.
+  -->
+  <defs>
+    <g id="glyph">
+      <!-- five beam bars, rounded ends -->
+      <rect x="151" y="182" width="63" height="20" rx="10" />
+      <rect x="151" y="214" width="55" height="20" rx="10" />
+      <rect x="151" y="246" width="55" height="20" rx="10" />
+      <rect x="151" y="278" width="55" height="20" rx="10" />
+      <rect x="151" y="310" width="63" height="20" rx="10" />
+      <!-- headlight ring: outer r 71.5, inner r 50 (evenodd hole) -->
+      <path fill-rule="evenodd" d="M 289 184 A 71.5 71.5 0 1 0 289 327 A 71.5 71.5 0 1 0 289 184 Z M 289 205.5 A 50 50 0 1 1 289 305.5 A 50 50 0 1 1 289 205.5 Z" />
+    </g>
+  </defs>
+
+  <!-- halo: same glyph ~10% larger in the deep edge colour, so the mark separates
+       from pale (light-mode) taskbars (id="halo" lets renderers drop it, e.g. for
+       the plain-cyan assets/beam-256.png) -->
+  <use id="halo" href="#glyph" xlink:href="#glyph" fill="#0080B4"
+       transform="translate(140 140) scale(1.32) translate(-255.5 -255.5)" />
+
+  <!-- brand fill: Pantone 638C -->
+  <use href="#glyph" xlink:href="#glyph" fill="#00AED8"
+       transform="translate(140 140) scale(1.2) translate(-255.5 -255.5)" />
+</svg>

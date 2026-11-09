@@ -79,8 +79,12 @@ internal sealed class FakeTopologySource : ITopologySource
     public DisplayTopology Topology { get; set; } = DisplayTopology.Empty;
     public int QueryCount { get; private set; }
 
+    /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
+    public Action? BeforeCall { get; set; }
+
     public DisplayTopology Query()
     {
+        BeforeCall?.Invoke();
         QueryCount++;
         return Topology;
     }
@@ -111,8 +115,12 @@ internal sealed class FakeModeController : IDisplayModeController
     /// <summary>Hook run after a successful apply; tests use it to flip the fake topology.</summary>
     public Action? OnApply { get; set; }
 
+    /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
+    public Action? BeforeCall { get; set; }
+
     public string? ApplyCloneWith16x9()
     {
+        BeforeCall?.Invoke();
         ApplyCalls++;
         if (ApplyResult is null)
         {
@@ -124,6 +132,7 @@ internal sealed class FakeModeController : IDisplayModeController
 
     public string? Restore()
     {
+        BeforeCall?.Invoke();
         RestoreCalls++;
         return RestoreResult;
     }
@@ -135,10 +144,18 @@ internal sealed class FakeDpiController : IDpiController
     public bool SetResult { get; set; } = true;
     public List<int> RequestedPercents { get; } = new();
 
-    public DpiScale? Read(DisplayPath path) => ReadResult;
+    /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
+    public Action? BeforeCall { get; set; }
+
+    public DpiScale? Read(DisplayPath path)
+    {
+        BeforeCall?.Invoke();
+        return ReadResult;
+    }
 
     public bool SetPercentageAndVerify(DisplayPath path, int percent, DpiScaleValue? current = null)
     {
+        BeforeCall?.Invoke();
         RequestedPercents.Add(percent);
         return SetResult;
     }
@@ -154,14 +171,19 @@ internal sealed class FakeNightLightController : INightLightController
     public bool? LastActive { get; private set; }
     public IReadOnlyList<NightLightSnapshot>? LastRestored { get; private set; }
 
+    /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
+    public Action? BeforeCall { get; set; }
+
     public IReadOnlyList<NightLightSnapshot> SnapshotAll()
     {
+        BeforeCall?.Invoke();
         SnapshotCalls++;
         return Snapshots;
     }
 
     public NightLightWriteResult SetActive(bool active)
     {
+        BeforeCall?.Invoke();
         SetActiveCalls++;
         LastActive = active;
         return new NightLightWriteResult(WriteResult, WriteResult ? "ok" : "failed", Array.Empty<string>());
@@ -169,6 +191,7 @@ internal sealed class FakeNightLightController : INightLightController
 
     public NightLightWriteResult Restore(IReadOnlyList<NightLightSnapshot> snapshots)
     {
+        BeforeCall?.Invoke();
         RestoreCalls++;
         LastRestored = snapshots;
         return new NightLightWriteResult(WriteResult, WriteResult ? "restored" : "failed", Array.Empty<string>());
@@ -182,17 +205,26 @@ internal sealed class FakeJournalStore : IJournalStore
     public int ClearCalls { get; private set; }
     public IReadOnlyList<NightLightSnapshot>? LastBegin { get; private set; }
 
+    /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
+    public Action? BeforeCall { get; set; }
+
     public void BeginApply(string reason, IReadOnlyList<NightLightSnapshot>? nightLight)
     {
+        BeforeCall?.Invoke();
         BeginCalls++;
         LastBegin = nightLight;
         Record = new JournalRecord(true, reason, DateTimeOffset.Now.ToString("o"), null);
     }
 
-    public JournalRecord? Read() => Record;
+    public JournalRecord? Read()
+    {
+        BeforeCall?.Invoke();
+        return Record;
+    }
 
     public void Clear()
     {
+        BeforeCall?.Invoke();
         ClearCalls++;
         Record = null;
     }

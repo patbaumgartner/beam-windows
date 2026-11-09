@@ -14,7 +14,7 @@ Beam's test suite is split along the same lines as the production code. The rule
 | `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, concurrency stress |
 | `tests/Beam.Architecture.Tests` | `net10.0` | Project-reference and portability rules from [architecture.md](architecture.md), composition-root binary-name collision guard |
 
-Current totals: **519 tests**. Run them with:
+Current totals: **550 tests**. Run them with:
 
 ```powershell
 dotnet test Beam.sln -c Release
@@ -26,9 +26,14 @@ struct helpers.
 
 ## Stress, UI, and interaction coverage
 
-- **`Beam.App.Tests/StressTests.cs`** — burst display changes, concurrent `ApplyNow` /
-  `RestoreNow` raced through the gate, repeated apply→restore cycles, journal-clear
-  races, and session-state-machine stress (`Parallel.For`, barriers, rapid pause/resume).
+- **`Beam.App.Tests/SoakTests.cs`** — the long-running acceptance scenarios: the
+  500-cycle apply/restore soak (0 black screens, 500/500 valid end states), the
+  UC-12 random-fault property test (end state is always a member of the original
+  mode list), unplug-restore 20/20, at most one apply per attach, and kill -9 at
+  20 points with the next start always valid.
+- **`Beam.App.Tests/PresentationErrorInjectionTests.cs`** — concurrent `ApplyNow` /
+  `RestoreNow` raced through the gate, repeated apply→restore cycles,
+  journal-clear races, and session-state-machine stress.
 - **`Beam.Windows.Tests/DisplayMonitorStressTests.cs`** — the real polling loop against
   scripted "hardware": burst changes, rapid connect/disconnect (no event storms), p95
   latency bound, transient capture failures, and repeated start/stop cycles.
@@ -137,15 +142,15 @@ pwsh eng/coverage.ps1 -Enforce     # fail below the gate (used by CI)
 ```
 
 The script unions the Cobertura reports from every test project, so a line counts as
-covered if any project exercised it. Current numbers (Release, 2026-11-07):
+covered if any project exercised it. Current numbers (Release, 2026-11-08):
 
 | Assembly | Lines | Gate |
 |---|---|---|
-| `Beam.Core` | 382 / 400 = 95.5% | ≥ 85% |
-| `Beam.App` | 409 / 423 = 96.7% | ≥ 80% |
+| `Beam.Core` | 381 / 400 = 95.2% | ≥ 85% |
+| `Beam.App` | 462 / 474 = 97.5% | ≥ 80% |
 | `Beam.Cli` | 247 / 305 = 81.0% | ≥ 75% |
-| `Beam.Windows` | 99 / 598 = 16.6% | reported only |
-| `Beam.Tray` | 12 / 482 = 2.5% | reported only |
+| `Beam.Windows` | 108 / 611 = 17.7% | reported only |
+| `Beam.Tray` | 12 / 458 = 2.6% | reported only |
 
 Coverage is a regression alarm, not a target. The sequencing and failure-path tests in
 `Beam.App.Tests` matter more than the percentage.
@@ -159,6 +164,32 @@ Coverage is a regression alarm, not a target. The sequencing and failure-path te
 4. Keep tests deterministic. Do not sleep when a `TaskCompletionSource` or an awaitable
    `PendingTask` can signal completion; the display monitor tests are the exception
    because polling is the behaviour under test.
+
+## Mutation testing
+
+Beam includes a Roslyn-based mutation tester at `eng/MutationTester/`. It applies small
+semantic mutations (operator flips, literal changes, boolean negation) to source files,
+builds, runs the test suite, and reports whether each mutant was **killed** (tests caught
+the change) or **survived** (tests passed despite the change).
+
+A **surviving mutant** indicates one of two things:
+
+1. **Weak test ("evergreen test")** — the mutated code is exercised by tests, but the
+   assertions don't catch the change. Add or strengthen assertions.
+2. **Dead code** — the mutated code is never reached by any test. Remove the code or add
+   coverage.
+
+### Running
+
+```powershell
+# Run up to 50 mutants against Beam.Core
+pwsh eng/mutation-test.ps1 -SourceProject src/Beam.Core/Beam.Core.csproj -TestProject tests/Beam.Core.Tests/Beam.Core.Tests.csproj
+
+# Run with a specific report output
+pwsh eng/mutation-test.ps1 -Output mutation-report.json -SourceProject src/Beam.Core/Beam.Core.csproj -TestProject tests/Beam.Core.Tests/Beam.Core.Tests.csproj -SourceProject src/Beam.App/Beam.App.csproj -TestProject tests/Beam.App.Tests/Beam.App.Tests.csproj
+```
+
+Exit code is non-zero when any mutants survive — CI should fail on this.
 
 ## Hardware matrix (manual)
 
