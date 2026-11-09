@@ -98,7 +98,13 @@ internal sealed class MutationRunner
     private readonly string _srcDir;
     private readonly string _repoRoot;
     private int _maxMutants = int.MaxValue;
-    private bool _testBuilt = false;
+
+    /// <summary>
+    /// Original file contents, captured the first time a file is mutated. Restored on
+    /// normal completion, on an exception, and on process exit / Ctrl+C — a killed run
+    /// must never leave mutated sources behind (the repo must stay buildable).
+    /// </summary>
+    private readonly Dictionary<string, string> _originals = new(StringComparer.OrdinalIgnoreCase);
 
     public MutationRunner(string srcProj, string testProj, int maxMutants = int.MaxValue)
     {
@@ -107,52 +113,89 @@ internal sealed class MutationRunner
         _maxMutants = maxMutants;
         _srcDir = Path.GetDirectoryName(_srcProj)!;
         _repoRoot = Path.GetFullPath(Path.Combine(_srcDir, "..", "..", ".."));
+
+        AppDomain.CurrentDomain.ProcessExit += (_, _) => RestoreAllOriginals();
+        Console.CancelKeyPress += (_, e) =>
+        {
+            e.Cancel = true; // let the finally blocks run, then exit
+            RestoreAllOriginals();
+            Environment.Exit(130);
+        };
+    }
+
+    private void RestoreAllOriginals()
+    {
+        foreach (var (path, content) in _originals)
+        {
+            try
+            {
+                if (File.Exists(path) && File.ReadAllText(path) != content)
+                {
+                    File.WriteAllText(path, content);
+                    Console.WriteLine($"  restored original: {path}");
+                }
+            }
+            catch
+            {
+                // best effort during shutdown
+            }
+        }
     }
 
     public MutationReport Run()
     {
         var sw = Stopwatch.StartNew();
-
-        // Pre-build the test project so we can use --no-build for subsequent runs
-        Console.WriteLine($"Pre-building test project {Path.GetFileName(_testProj)}...");
-        var testBuild = BuildProject(_testProj);
-        if (!testBuild.Success)
+        try
         {
-            Console.Error.WriteLine($"Failed to build test project: {testBuild.Output}");
+            // Pre-build the test project once so a broken baseline fails fast. Each mutant
+            // run still rebuilds (no --no-build): building only the source project does not
+            // refresh the test project's copy of the source DLL, so --no-build would run
+            // every mutant against the stale, unmutated binaries.
+            Console.WriteLine($"Pre-building test project {Path.GetFileName(_testProj)}...");
+            var testBuild = BuildProject(_testProj);
+            if (!testBuild.Success)
+            {
+                Console.Error.WriteLine($"Failed to build test project: {testBuild.Output}");
+            }
+
+            var csFiles = Directory.GetFiles(_srcDir, "*.cs", SearchOption.AllDirectories)
+                .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)
+                         && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
+                .ToList();
+
+            Console.WriteLine($"Found {csFiles.Count} source files in {Path.GetFileName(_srcProj)}");
+
+            int mutantsRun = 0;
+            foreach (var file in csFiles)
+            {
+                if (mutantsRun >= _maxMutants) break;
+                var relFile = Path.GetRelativePath(_srcDir, file);
+                Console.WriteLine($"  Mutating {relFile}...");
+                mutantsRun += MutateFile(file, relFile);
+            }
+
+            sw.Stop();
+
+            var killed = _results.Count(r => r.Killed);
+            var report = new MutationReport
+            {
+                SourceProject = _srcProj,
+                TestProject = _testProj,
+                TotalMutants = _results.Count,
+                KilledMutants = killed,
+                SurvivingMutants = _results.Where(r => !r.Killed).ToList(),
+                KilledMutantList = _results.Where(r => r.Killed).ToList(),
+                Elapsed = sw.Elapsed,
+            };
+
+            return report;
         }
-        _testBuilt = true;
-
-        var csFiles = Directory.GetFiles(_srcDir, "*.cs", SearchOption.AllDirectories)
-            .Where(f => !f.Contains(Path.DirectorySeparatorChar + "obj" + Path.DirectorySeparatorChar)
-                     && !f.Contains(Path.DirectorySeparatorChar + "bin" + Path.DirectorySeparatorChar))
-            .ToList();
-
-        Console.WriteLine($"Found {csFiles.Count} source files in {Path.GetFileName(_srcProj)}");
-
-        int mutantsRun = 0;
-        foreach (var file in csFiles)
+        finally
         {
-            if (mutantsRun >= _maxMutants) break;
-            var relFile = Path.GetRelativePath(_srcDir, file);
-            Console.WriteLine($"  Mutating {relFile}...");
-            mutantsRun += MutateFile(file, relFile);
+            // Belt and braces: every mutated file is restored here even if a mutant
+            // loop threw (the per-mutant finally already restores after each mutant).
+            RestoreAllOriginals();
         }
-
-        sw.Stop();
-
-        var killed = _results.Count(r => r.Killed);
-        var report = new MutationReport
-        {
-            SourceProject = _srcProj,
-            TestProject = _testProj,
-            TotalMutants = _results.Count,
-            KilledMutants = killed,
-            SurvivingMutants = _results.Where(r => !r.Killed).ToList(),
-            KilledMutantList = _results.Where(r => r.Killed).ToList(),
-            Elapsed = sw.Elapsed,
-        };
-
-        return report;
     }
 
     private readonly List<MutantResult> _results = new();
@@ -160,6 +203,7 @@ internal sealed class MutationRunner
     private int MutateFile(string filePath, string relFile)
     {
         var originalSource = File.ReadAllText(filePath);
+        _originals.TryAdd(filePath, originalSource); // tracked for the global safety net
         SyntaxTree tree;
         try
         {
@@ -353,7 +397,9 @@ internal sealed class MutationRunner
 
     private TestResult RunTests()
     {
-        var args = _testBuilt ? $"test \"{_testProj}\" -c Release --nologo --no-build -v q" : $"test \"{_testProj}\" -c Release --nologo -v q";
+        // No --no-build: the mutated source project is rebuilt, and the test project must
+        // be rebuilt too so it picks up the mutated DLL (dotnet test builds project refs).
+        var args = $"test \"{_testProj}\" -c Release --nologo -v q";
         var psi = new ProcessStartInfo
         {
             FileName = "dotnet",

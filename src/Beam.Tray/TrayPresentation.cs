@@ -34,8 +34,9 @@ internal static class TrayPresentation
     public static bool CanApplyNow(SessionState state) => state == SessionState.Idle;
 
     /// <summary>
-    /// Whether "Restore display" is meaningful right now. Only while a fix is active;
-    /// disabled while restoring (already in progress) or paused.
+    /// Whether "Undo projector mode" is meaningful right now (UC-09 A3). Only while a fix
+    /// is active; disabled while restoring (already in progress), paused, or idle —
+    /// undo never appears when nothing was changed (UC-09 AC3).
     /// </summary>
-    public static bool CanRestore(SessionState state) => state == SessionState.Active;
+    public static bool CanUndo(SessionState state) => state == SessionState.Active;
 }

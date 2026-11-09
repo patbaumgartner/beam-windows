@@ -28,4 +28,18 @@ public class TrayPresentationTests
     {
         Assert.Equal(expected, TrayPresentation.PauseItemText(state));
     }
+
+    // UC-09 AC3: the undo action is only offered while a fix is actually active —
+    // never as a dead menu item (roadmap 1.12 "Undo projector mode").
+    [Theory]
+    [InlineData(SessionState.Idle, false)]
+    [InlineData(SessionState.Detecting, false)]
+    [InlineData(SessionState.Applying, false)]
+    [InlineData(SessionState.Active, true)]
+    [InlineData(SessionState.Restoring, false)]
+    [InlineData(SessionState.Paused, false)]
+    public void CanUndo_OnlyWhileFixIsActive(SessionState state, bool expected)
+    {
+        Assert.Equal(expected, TrayPresentation.CanUndo(state));
+    }
 }

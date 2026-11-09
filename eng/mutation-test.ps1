@@ -70,27 +70,33 @@ try {
         Write-Output "=== Mutation testing: $src ==="
         Write-Output "Test project: $tst"
 
-        $result = dotnet run --project eng/MutationTester/MutationTester.csproj -c Release --nologo -- "$src" "$tst" 2>&1
+        # Pass a per-project report file as the 3rd arg: the tool prints summary lines
+        # after the JSON on stdout, so stdout cannot be parsed reliably — the file can.
+        $projReportPath = "$env:TEMP\beam-mutation-report-$timestamp-$i.json"
+        $result = dotnet run --project eng/MutationTester/MutationTester.csproj -c Release --nologo -- "$src" "$tst" "$projReportPath" 2>&1
         $exit = $LASTEXITCODE
 
         Write-Output $result
 
-        # Parse the JSON output from the tool (last line of output is the report)
-        $lines = $result -split "`n"
-        $jsonLine = $lines[-1]
+        # Parse the report file the tool wrote (stdout has trailing summary lines).
         try {
-            $report = $jsonLine | ConvertFrom-Json
-            $totalKilled += $report.KilledMutants
-            $totalMutants += $report.TotalMutants
+            if (Test-Path $projReportPath) {
+                $report = Get-Content $projReportPath -Raw | ConvertFrom-Json
+                $totalKilled += $report.KilledMutants
+                $totalMutants += $report.TotalMutants
 
-            foreach ($mutant in $report.SurvivingMutants) {
-                $allResults += [pscustomobject]@{
-                    SourceProject = $src
-                    File = $mutant.File
-                    Line = $mutant.Line
-                    Mutation = $mutant.Mutation
-                    Description = $mutant.Description
+                foreach ($mutant in $report.SurvivingMutants) {
+                    $allResults += [pscustomobject]@{
+                        SourceProject = $src
+                        File = $mutant.File
+                        Line = $mutant.Line
+                        Mutation = $mutant.Mutation
+                        Description = $mutant.Description
+                    }
                 }
+            }
+            else {
+                throw "report file not written"
             }
         }
         catch {
