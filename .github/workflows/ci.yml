@@ -141,15 +141,24 @@ jobs:
           Write-Host "Snapshot installer version: $v"
           & "$isccPath" "/DMyAppVersion=$v" /DOutputDir="$PWD\nightly" installer\Beam.iss
 
-      - name: List installer output
+      - name: Package portable snapshot + SHA256SUMS
+        shell: pwsh
+        run: |
+          $props = [xml](Get-Content Directory.Build.props)
+          .\eng\package-snapshot.ps1 -Version $props.Project.PropertyGroup.Version -OutputDir "$PWD\nightly"
+
+      - name: List snapshot output
         shell: pwsh
         run: Get-ChildItem nightly | Select-Object Name, Length
 
-      - name: Upload installer
+      - name: Upload snapshot files
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: beam-snapshot-installer
-          path: nightly/BeamSetup-*.exe
+          path: |
+            nightly/BeamSetup-*.exe
+            nightly/*.zip
+            nightly/SHA256SUMS.txt
           if-no-files-found: error
 
   # Every push to main publishes an updated "latest snapshot" release so the
@@ -182,14 +191,23 @@ jobs:
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: snapshot
-          name: Beam snapshot (latest main build)
+          name: Beam snapshot (latest main build, unsigned)
           body: |
-            Automated snapshot installer built from the latest `main` branch push.
+            Automated snapshot built from the latest `main` branch push — installer,
+            portable zip and SHA256SUMS on every build.
+
+            **Unsigned snapshot** (ADR-0016): these files are not code-signed until the
+            `AZURE_*` secrets are configured; Windows SmartScreen will warn on install.
+            Tag releases (`v*`) become signed stable releases once signing is enabled.
 
             Install it to get the latest fixes while a stable release is being prepared.
-          files: ${{ steps.loc.outputs.path }}
+          files: |
+            ${{ steps.loc.outputs.path }}
+            installer/*.zip
+            installer/SHA256SUMS.txt
+          prerelease: true
           target_commitish: ${{ github.sha }}
           recreate: true
-          make_latest: true
+          make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
