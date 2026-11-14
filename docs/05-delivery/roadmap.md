@@ -72,7 +72,7 @@ restore + safety + tray.
 | 3.2 | Command Palette extension | UC-16 | |
 | 3.3 | Presentation extras: keep awake, DND, audio (opt-in) | UC-17 | **DONE 2026-11-14 (B3)** — default-on and switchable, journaled, failure never fails the session (ADR-0017) |
 | 3.4 | Performance/robustness hardening | — |
-| 3.5 | Signing + SmartScreen + release pipeline | **DONE 2026-10-31** — Inno Setup installer + GitHub Actions CI snapshot + release on tag |
+| 3.5 | Installer + release pipeline (unsigned, ADR-0016) | **DONE 2026-10-31** — Inno Setup installer + GitHub Actions CI snapshot (installer + portable zip + SHA256SUMS) on every main push + release on every `v*` tag |
 
 ## Phase 4 — Upstream (parallel, ongoing)
 
@@ -90,9 +90,10 @@ restore + safety + tray.
 Phases A–D of [presenter-edition-plan.md](presenter-edition-plan.md) are implemented and
 green (build 0 warnings, **794 tests, 0 failed**): hardening (A), status file / prefer-
 native / extras / settings store / ignore-display / CLI session block / hotkey (B),
-settings + diagnostics windows, tray polish, first-run toast, a11y-loc (C), and signing +
-docs + hardware matrix (D). Details in [CHANGELOG.md](../../CHANGELOG.md) §0.2.0 and
-ADRs 0016–0019.
+settings + diagnostics windows, tray polish, first-run toast, a11y-loc (C), and
+unsigned distribution via GitHub Releases (installer + portable zip + SHA256SUMS on
+every build and tag) + docs + hardware matrix (D). Details in
+[CHANGELOG.md](../../CHANGELOG.md) §0.2.0 and ADRs 0016–0019.
 
 ## Milestones
 

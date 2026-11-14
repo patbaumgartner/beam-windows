@@ -12,7 +12,7 @@ and validation with the product owner. Answers that drove this plan:
 | V4 | Presentation extras (UC-17) | **Keep-awake (default on), DND, audio-to-HDMI** — all three, each toggleable + restored |
 | V5 | Dev second screen | **Persisted settings**, `beam status` shows the live tray session, **per-display "Ignore this display"** |
 | V6 | UI scope | Polished tray menu **plus a real settings window** |
-| V7 | Security scope | **Quick wins first, and start code signing now** |
+| V7 | Security scope | **Quick wins first; no code signing** (permanent decision, ADR-0016 — no cert budget / no Azure tenant) |
 | V8 | 16:9 mode choice | **Prefer the projector's EDID-native mode**, 60 Hz preferred, 30 Hz fallback |
 
 Goal: **"Plug in. Look right. Every time."** — plus: glance at the laptop corner and
@@ -35,11 +35,11 @@ prerequisites for trusting the presenter features on stage.
 | A5 | **Diagnosable single instance.** Write `%LOCALAPPDATA%\Beam\instance.lock` with PID + timestamp; on mutex-squat, log which PID holds it. | `src/Beam.Tray/Program.cs` | Any same-user process can currently pre-create the mutex and silently block Beam. |
 | A6 | **No display query on the UI thread.** `TrayService.ShowStatus()` currently constructs `DisplayInventory` and runs `QueryDisplayConfig` on the UI thread — use the monitor's cached snapshot instead. | `src/Beam.Tray/TrayService.cs` | Same class of stall the cursor-guard comments warn about. |
 | A7 | **Explicit shell launch.** `ProcessStartInfo { UseShellExecute = true }` for the "Open log folder" explorer launch. | `src/Beam.Tray/TrayService.cs` | Constant path today, but make the intent explicit. |
-| A8 | **Start code signing.** Azure Trusted Signing (or a cert) in the release workflow; sign `Beam.exe`, `Beam.Cli.exe`, and the Inno installer; add a CI step that verifies signatures; document SmartScreen expectations; answer O6. | `.github/workflows/release.yml`, `installer/build.ps1`, `docs/05-delivery/open-questions.md` | Unsigned downloads at a venue = SmartScreen friction exactly when a speaker installs. |
+| A8 | **Distribution without signing (decided: never sign).** Every build uploads installer + portable zip + `SHA256SUMS.txt` to GitHub Releases from the GH workflows — snapshot on every `main` push, release on every `v*` tag; document the SmartScreen "unknown publisher" expectation; answer O6. | `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `eng/package-snapshot.ps1`, `installer/build.ps1`, `docs/05-delivery/open-questions.md` | SmartScreen warns on first run; checksums + docs are the integrity story (ADR-0016). |
 
 **Phase A exit:** all A-items merged, gates green (build 0 warnings, format, tests incl.
-new journal/log/mutex tests, architecture, coverage, mutation, links), signing working
-on a `v0.2.0` test tag.
+new journal/log/mutex tests, architecture, coverage, mutation, links), release
+pipeline uploading artifacts to GitHub Releases on a `v0.2.0` test tag.
 
 ---
 
@@ -77,11 +77,11 @@ tells the truth about the running tray. Verified on real hardware per the matrix
 
 ## Phase D — Release hardening (~1 week part-time)
 
-- Sign and publish `v0.2.0` (installer + binaries), verify in CI; winget manifest as a follow-up.
+- Publish `v0.2.0` via the tag: Release workflow builds installer + portable zip + SHA256SUMS and uploads them to the GitHub release (unsigned, ADR-0016).
 - Hardware matrix runs: user's projector(s) incl. 30 Hz-only rooms, USB-C dock / KVM flapping (UC-13), 4K vs 1080p beamers (B2).
-- Docs: README features/usage, `SECURITY.md` (PII change in A4, signing, new attack-surface notes),
+- Docs: README features/usage, `SECURITY.md` (PII change in A4, unsigned distribution + SmartScreen note, new attack-surface notes),
   roadmap status, answer O1/O6 in `open-questions.md`, CHANGELOG 0.2.0, new ADRs (native-mode
-  ranking, extras, settings store, signing).
+  ranking, extras, settings store, distribution).
 
 ---
 

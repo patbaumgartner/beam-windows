@@ -78,6 +78,9 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
 
 Download the latest installer from the
 [Releases](https://github.com/patbaumgartner/beam-windows/releases) page and run it.
+Beam is not code-signed (see [ADR-0016](docs/04-adr/ADR-0016-distribution.md)), so
+Windows SmartScreen may show an "unknown publisher" warning — that's expected; each
+release also ships `SHA256SUMS.txt` to verify the download.
 Tick **Launch Beam at sign-in** when prompted. That's it — Beam lives in the tray.
 
 ### Build from source
@@ -225,7 +228,8 @@ against the hardware matrix in [test-strategy.md](docs/05-delivery/test-strategy
 
 Phase 0–5 milestones are tracked in [docs/05-delivery/roadmap.md](docs/05-delivery/roadmap.md).
 Current status: **0.2.0 "Presenter Edition" shipped 2026-11-14** — tray, CLI, installer +
-CI, settings & diagnostics windows, presentation extras, signed releases (ADR-0016).
+CI, settings & diagnostics windows, presentation extras; releases (installer + portable
+zip + SHA256SUMS) published from GitHub Actions, unsigned by decision (ADR-0016).
 Hardware verification runs are tracked in
 [docs/05-delivery/hardware-matrix.md](docs/05-delivery/hardware-matrix.md). The long-term
 goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).

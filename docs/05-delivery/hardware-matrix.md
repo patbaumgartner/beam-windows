@@ -35,7 +35,7 @@ release notes (test-strategy.md §6 release checklist).
 | H15 | Audio extra (B3) | default render endpoint switches to the HDMI/projector on apply, restores on unplug | fake-tested end-to-end; hardware pending |
 | H16 | Explorer restart (`TaskbarCreated`) | tray icon re-registers, exactly one icon, no monitor loop | code wired (`Program.cs` HostForm); hardware pending |
 | H17 | Diagnostics bundle (A4) | zip on the Desktop contains **no** machine/user names; `summary.txt` sanitized | automated PASS (`Exporter_WritesZipWithSanitizedEntries`) |
-| H18 | Fresh install on a clean Windows 11 VM | per-user install works; `sign.ps1 -Mode Verify` reports `Valid`; uninstall leaves no residue | CI release gate (ADR-0016); manual VM run pending |
+| H18 | Fresh install on a clean Windows 11 VM | per-user install works from the GitHub Release download; uninstall leaves no residue | manual VM run pending |
 
 ## How to record a run
 

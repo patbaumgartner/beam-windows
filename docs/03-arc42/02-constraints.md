@@ -23,7 +23,7 @@
 |---|---|---|
 | OC1 | PowerToys requires an issue + agreement + spec before large PRs | Standalone first; upstream proposal in parallel (ADR-0001) |
 | OC2 | PowerDisplay is under active development (PR #51072) | Sequence upstream work; avoid touching the same files early |
-| OC3 | No budget for code signing certificates at MVP | Unsigned dev builds; document SmartScreen behaviour |
+| OC3 | No budget for code signing certificates — ever (ADR-0016) | Ship unsigned; SHA256SUMS.txt with every release; document SmartScreen behaviour |
 | OC4 | One developer, part-time | Phased roadmap; spikes gate scope |
 | OC5 | Hardware access is limited (one laptop, one 1080p display) | Simulation-first testing; community hardware matrix |
 

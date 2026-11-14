@@ -38,16 +38,17 @@ crash mid-apply is recovered from the journal on next start (UC-11).
   appears in the zip (`DiagnosticsTests.Exporter_WritesZipWithSanitizedEntries`).
 - **Status file** `status.json` contains display identities and settings only.
 
-## Signing and distribution (O6 → ADR-0016)
+## Distribution and integrity (O6 → ADR-0016)
 
-- Release artifacts (`Beam.exe`, `Beam.Cli.exe`, `BeamSetup-<version>.exe`) are signed in
-  CI with **Azure Trusted Signing** (RFC 3161 timestamped) via `installer/sign.ps1`; a
-  `signtool verify /pa /all` gate fails the release if anything is unsigned
-  ([ADR-0016](docs/04-adr/ADR-0016-signing-and-distribution.md)).
-- Snapshot builds (every push to `main`) are intentionally unsigned previews.
-- Even signed, a brand-new publisher reputation takes a few downloads before SmartScreen
-  stops warning — expected, and the reason the release notes mention it.
-- No secrets are committed: ATS credentials live in GitHub Actions secrets only.
+- Beam is **not code-signed, by permanent decision** ([ADR-0016](docs/04-adr/ADR-0016-distribution.md)):
+  no cert budget, no Azure tenant, no signing secrets anywhere. Windows SmartScreen will
+  show an "unknown publisher" warning on first run — expected; users can click through.
+- Every build (snapshot on `main`) and every `v*` tag (release) is produced entirely by
+  GitHub Actions workflows (`.github/workflows/ci.yml`, `.github/workflows/release.yml`)
+  and uploaded to GitHub Releases over HTTPS: `BeamSetup-<version>.exe`,
+  `beam-<version>-portable.zip`, `SHA256SUMS.txt`.
+- Integrity check for users: `Get-FileHash BeamSetup-0.2.0.exe -Algorithm SHA256` and
+  compare with `SHA256SUMS.txt` on the release page.
 
 ## Reporting a vulnerability
 

@@ -23,7 +23,7 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
 - **Diagnostics window**: live 200-event timeline ring buffer, copy-summary, **export bundle** (zip written to the Desktop, sanitized — machine/user names redacted, A4), re-evaluate now, reset safe mode (C4).
 - **Tray menu polish**: timed-pause items ("Pause for 15 min" / "Pause for 1 h" next to the indefinite pause), shortcut hint on the Apply item, richer status header (C2); **first-run toast** shown exactly once (C3).
 - **Accessibility & localization pass**: all tray/window strings externalized (`TrayStrings`, structure ready for loc), UIA names on icon and menu, `TaskbarCreated` re-registration after Explorer restarts (C5).
-- **Signed releases**: `installer/sign.ps1` (Azure Trusted Signing in CI with RFC 3161 timestamps, signtool `-Mode Verify` gate); release artifacts are Authenticode-signed from v0.2.0, snapshot builds stay unsigned (A8/Phase D, [ADR-0016](docs/04-adr/ADR-0016-signing-and-distribution.md)).
+- **Distribution without signing** (A8/Phase D, [ADR-0016](docs/04-adr/ADR-0016-distribution.md)): no code signing, permanently. Every push to `main` uploads installer + `beam-<version>-portable.zip` + `SHA256SUMS.txt` to the rolling `snapshot` GitHub Release; every `v*` tag publishes the same three files to its release — all built by the GH workflows. SmartScreen "unknown publisher" is documented; verify downloads against `SHA256SUMS.txt`.
 - **794 tests** (was 574 at 0.1.x): Architecture 11, Core 306, App 199, Windows 59, Tray 145, Cli 74 — including the Phase B/C property, settings round-trip, diagnostics-sanitization and tray view-model suites.
 
 ### Changed

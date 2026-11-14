@@ -23,7 +23,7 @@ Everything that blocked the plan has been answered; the answers are recorded in
 | # | Question | Answer |
 |---|---|---|
 | O1 | Which hardware is available? | **This laptop (16:10 panel @ 200%) + a DELL U2718Q 16:9 monitor as projector stand-in.** S3/S4 PASS on it (2026-10-30) and the S6 500-cycle soak PASSed physically on 2026-11-09, so the MVP is verified end-to-end. A real projector, USB-C dock, KVM, AVR and a second-GPU PC are still pending — the per-release runs are tracked row by row in [hardware-matrix.md](hardware-matrix.md) (H1–H18); until the real projector arrives, the DELL stands in and those rows stay open. |
-| O6 | Signing and distribution | **Sign releases, not snapshots.** CI signs `Beam.exe`, `Beam.Cli.exe` and the installer with Azure Trusted Signing via `installer/sign.ps1` (secrets in GitHub Actions only) and gates on `signtool verify` — see [ADR-0016](../04-adr/ADR-0016-signing-and-distribution.md). Shipping unsigned with a SmartScreen warning was rejected. winget manifest is a follow-up after the first signed beta (reputation accumulates there). |
+| O6 | Signing and distribution | **No code signing, ever.** There is no cert budget and no Azure tenant, so Beam ships unsigned; every build (snapshot) and every `v*` tag (release) uploads installer + portable zip + `SHA256SUMS.txt` to GitHub Releases from the GH workflows. SmartScreen's "unknown publisher" warning is documented (README, SECURITY.md); integrity = HTTPS + SHA256SUMS. See [ADR-0016](../04-adr/ADR-0016-distribution.md). |
 
 ## Still open
 
@@ -60,5 +60,6 @@ keep awake, Do Not Disturb, audio to HDMI (ADR-0017). Failures never fail the se
 
 ### O6 — Signing and distribution
 
-**Answered 2026-11-14:** see ADR-0016 and the answered table above — Azure Trusted Signing
-in CI for releases; snapshots unsigned; winget after the first signed beta.
+**Answered 2026-11-14 (revised same day):** see ADR-0016 and the answered table above —
+ship unsigned permanently; GitHub Releases carry installer + portable zip + SHA256SUMS
+on every build and every tag.

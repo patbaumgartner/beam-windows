@@ -191,14 +191,14 @@ jobs:
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: snapshot
-          name: Beam snapshot (latest main build, unsigned)
+          name: Beam snapshot (latest main build)
           body: |
             Automated snapshot built from the latest `main` branch push — installer,
             portable zip and SHA256SUMS on every build.
 
-            **Unsigned snapshot** (ADR-0016): these files are not code-signed until the
-            `AZURE_*` secrets are configured; Windows SmartScreen will warn on install.
-            Tag releases (`v*`) become signed stable releases once signing is enabled.
+            Beam is not code-signed (ADR-0016), so Windows SmartScreen shows an
+            "unknown publisher" warning on first run — verify the download against
+            `SHA256SUMS.txt` if in doubt.
 
             Install it to get the latest fixes while a stable release is being prepared.
           files: |

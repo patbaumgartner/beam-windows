@@ -64,23 +64,16 @@ The fastest ship loop when you only changed code (no installer/registry logic):
 `SHA256SUMS.txt` (`eng/package-snapshot.ps1`), and republishes all of it to the rolling
 `snapshot` GitHub release (a prerelease, tagged `snapshot`).
 
-`.github/workflows/release.yml` triggers on a `v*` tag (or `workflow_dispatch` with a tag):
+`.github/workflows/release.yml` triggers on a `v*` tag (or `workflow_dispatch` with a tag).
+Beam is **not code-signed, by permanent decision** ([ADR-0016](../04-adr/ADR-0016-distribution.md)) —
+there is no signing step, no secrets, nothing to configure. The workflow:
 
 1. Resolve the version from the tag (`v0.2.0` → `0.2.0`).
 2. Publish tray + CLI with that version.
-3. **Signing is conditional** ([ADR-0016](../04-adr/ADR-0016-signing-and-distribution.md)):
-   - If the `AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` Actions secrets
-     exist, `Beam.exe` + `Beam.Cli.exe` are signed with Azure Trusted Signing *before*
-     packaging (so the installer embeds signed binaries), the installer is signed after
-     `ISCC`, and a `-Mode Verify` gate fails the release on any unsigned artifact.
-   - If the secrets are **not** set, signing is skipped with a warning and the release
-     ships as an **unsigned snapshot**: named `Beam vX.Y.Z (unsigned snapshot)` and
-     marked `prerelease: true`. This is the intended mode until the Azure app
-     registration exists — snapshots may be unsigned; stable releases may not.
-4. Build the installer with Inno Setup (downloaded in the runner), then package
-   `beam-<version>-portable.zip` + `SHA256SUMS.txt`.
-5. Create/update the GitHub release on the tag with installer + portable zip + checksums,
-   generating release notes.
+3. Build the installer with Inno Setup (downloaded in the runner).
+4. Package `beam-<version>-portable.zip` + `SHA256SUMS.txt` (`eng/package-snapshot.ps1`).
+5. Create/update the GitHub Release on the tag with installer + portable zip +
+   checksums attached, generating release notes.
 
 So releasing is just:
 
@@ -89,9 +82,8 @@ git tag v0.2.0 # after the gates above pass locally and CI is green
 git push origin v0.2.0
 ```
 
-To turn tag releases into signed stable ones later, add the three `AZURE_*` secrets
-(Settings → Secrets and variables → Actions) and re-run the release workflow — no tag
-change needed.
+SmartScreen will show an "unknown publisher" warning on the unsigned download —
+documented in README.md and SECURITY.md; users verify against `SHA256SUMS.txt`.
 
 ## Release checklist
 

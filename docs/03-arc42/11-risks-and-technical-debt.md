@@ -14,7 +14,7 @@
 | R8 | PowerDisplay refactor conflicts (PR #51072 and friends) | High | Low | Sequence, rebase, coordinate on issue before PR | dev |
 | R9 | Windows ships a native presentation profile | Low | High | Upstream-friendly posture; pivot to contribution | product |
 | R10 | Enterprise policy blocks HKCU CloudStore writes | Low | Med | Detect, degrade to gamma/none, explain | dev |
-| R11 | Antivirus flags unsigned binary | Med | Low | Sign in beta; document; submit to SmartScreen | release |
+| R11 | Antivirus/SmartScreen flags unsigned binary | Med | Low | Permanent decision: ship unsigned (ADR-0016); SHA256SUMS + docs; submit to SmartScreen | permanent |
 | R12 | Toast suppressed during presentations (DND) | Med | Low | Tray state + menu fallback | dev |
 | R13 | User changes settings mid-session and we clobber | Med | High | "Still ours" predicate (UC-07) | dev |
 | R14 | Journal lost (disk full, AV lock) | Low | High | Refuse to mutate if journal cannot be written | dev |
@@ -31,7 +31,7 @@
 | Topology is read-only in MVP | Duplicate/extend handling covers the reported problem; topology editing is a different product | UC-04 gaps, user demand |
 | Night Light is undocumented | No alternative that changes the real setting | Microsoft publishes an API |
 | English-only first | Localization owned by MS upstream | Upstream acceptance |
-| No code signing at MVP | Cost | First public beta |
+| No code signing, permanently | No cert budget, no Azure tenant (ADR-0016); SmartScreen warning documented, SHA256SUMS shipped | Only if a cert budget ever appears |
 | No audio switching in MVP | Risk/benefit, `IPolicyConfig` is undocumented | UC-17 demand |
 | Single projector transaction at a time | Simplicity; multi-device transactions are rare | Multi-projector reports |
 | Manual hardware matrix | No lab | Community testers / PowerToys lab |

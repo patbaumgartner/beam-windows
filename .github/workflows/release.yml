@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   release:
-    name: Build release installer
+    name: Build release artifacts
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
@@ -49,32 +49,8 @@ jobs:
       - name: Publish CLI
         run: dotnet publish src/Beam.Cli -c Release -p:Version=${{ steps.version.outputs.version }}
 
-      # Signing is optional while the AZURE_* secrets are not configured. Without them
-      # the tag release ships as an unsigned snapshot (marked prerelease), per ADR-0016.
-      # Once the secrets exist, the binaries are signed BEFORE packaging so the installer
-      # embeds signed files, and the Verify gate below fails the release on unsigned output.
-      - name: Sign binaries (skipped while AZURE_* secrets are unset)
-        id: sign
-        shell: pwsh
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        run: |
-          $exes = @(
-            "src\Beam.Tray\bin\Release\net10.0-windows\publish\Beam.exe",
-            "src\Beam.Cli\bin\Release\net10.0-windows\publish\Beam.Cli.exe"
-          )
-          if ($env:AZURE_TENANT_ID -and $env:AZURE_CLIENT_ID -and $env:AZURE_CLIENT_SECRET) {
-            dotnet tool install --global AzureSignTool
-            .\installer\sign.ps1 -Mode AzureTrustedSigning -Files $exes `
-              -TenantId $env:AZURE_TENANT_ID -ClientId $env:AZURE_CLIENT_ID -ClientSecret $env:AZURE_CLIENT_SECRET
-            "signed=true" >> $env:GITHUB_OUTPUT
-          } else {
-            Write-Warning "AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET not set - shipping UNSIGNED snapshot release (ADR-0016)."
-            "signed=false" >> $env:GITHUB_OUTPUT
-          }
-
+      # No code signing anywhere (ADR-0016): artifacts ship unsigned, integrity is
+      # provided by SHA256SUMS.txt attached to the release.
       - name: Build installer with Inno Setup
         shell: pwsh
         run: |
@@ -100,31 +76,9 @@ jobs:
           Write-Host "ISCC: $isccPath"
           & $isccPath "/DMyAppVersion=${{ steps.version.outputs.version }}" /DOutputDir="$PWD\nightly" installer\Beam.iss
 
-      - name: Sign installer (only when signing is enabled)
-        if: steps.sign.outputs.signed == 'true'
-        shell: pwsh
-        env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
-        run: |
-          $installer = (Get-Item nightly\BeamSetup-*.exe).FullName
-          .\installer\sign.ps1 -Mode AzureTrustedSigning -Files @($installer) `
-            -TenantId $env:AZURE_TENANT_ID -ClientId $env:AZURE_CLIENT_ID -ClientSecret $env:AZURE_CLIENT_SECRET
-
-      - name: Package portable snapshot + SHA256SUMS
+      - name: Package portable zip + SHA256SUMS
         shell: pwsh
         run: .\eng\package-snapshot.ps1 -Version ${{ steps.version.outputs.version }} -OutputDir "$PWD\nightly"
-
-      - name: Verify signatures (gate, only when signed)
-        if: steps.sign.outputs.signed == 'true'
-        shell: pwsh
-        run: |
-          $files = @((Get-Item nightly\BeamSetup-*.exe).FullName) + @(
-            "src\Beam.Tray\bin\Release\net10.0-windows\publish\Beam.exe",
-            "src\Beam.Cli\bin\Release\net10.0-windows\publish\Beam.Cli.exe"
-          )
-          .\installer\sign.ps1 -Mode Verify -Files $files
 
       - name: Locate installer
         id: loc
@@ -138,9 +92,8 @@ jobs:
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: ${{ steps.version.outputs.tag }}
-          name: ${{ steps.sign.outputs.signed == 'true' && format('Beam {0}', steps.version.outputs.tag) || format('Beam {0} (unsigned snapshot)', steps.version.outputs.tag) }}
-          # Unsigned builds are published as prereleases until signing is enabled (ADR-0016).
-          prerelease: ${{ steps.sign.outputs.signed != 'true' }}
+          name: ${{ format('Beam {0}', steps.version.outputs.tag) }}
+          prerelease: false
           files: |
             ${{ steps.loc.outputs.path }}
             nightly\beam-${{ steps.version.outputs.version }}-portable.zip
