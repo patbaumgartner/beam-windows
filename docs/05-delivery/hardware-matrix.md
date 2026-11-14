@@ -29,12 +29,12 @@ release notes (test-strategy.md §6 release checklist).
 | H9 | Timed pause while presenting, then unplug | paused session ignores changes; auto-resume after 15 min / 1 h restores | automated PASS (`PauseFor` tests); hardware pending |
 | H10 | 200% DPI + tray menu | menu responsive, cursor never sticks, icon crisp at 48/64/96 px | PASS 2026-11-09 (TrayIconTests + manual) |
 | H11 | 30 Hz-only room | 30 Hz 16:9 accepted, no unsupported mode; 60 Hz preferred when available | S6 finding on stand-in: 60 Hz rejected on the shared source, 30 Hz accepted — PASS |
-| H12 | Dock hot-plug flap (UC-13) | ≤ 1 apply per attach, cooldown respected, no event storm | automated PASS (`RapidConnectDisconnect_NoEventStorm`); hardware pending |
+| H12 | Dock hot-plug flap (UC-13) | ≤ 1 apply per attach, cooldown respected, no event storm | automated PASS (`RapidConnectDisconnect_NoEventStorm`); 2026-11-14 hardware partial — real U2718Q disconnect handled cleanly (1 trigger eval, no storm); scripted flap cycles pending monitor re-attach |
 | H13 | KVM switch bounce | topology re-read after bounce, single apply, no loop | pending |
 | H14 | 4K vs 1080p beamers (B2) | prefer-native picks the EDID-native 16:9; toggle off → max pixels (ADR-0018) | property tests PASS; hardware pending |
-| H15 | Audio extra (B3) | default render endpoint switches to the HDMI/projector on apply, restores on unplug | fake-tested end-to-end; hardware pending |
-| H16 | Explorer restart (`TaskbarCreated`) | tray icon re-registers, exactly one icon, no monitor loop | code wired (`Program.cs` HostForm); hardware pending |
-| H17 | Diagnostics bundle (A4) | zip on the Desktop contains **no** machine/user names; `summary.txt` sanitized | automated PASS (`Exporter_WritesZipWithSanitizedEntries`) |
+| H15 | Audio extra (B3) | default render endpoint switches to the HDMI/projector on apply, restores on unplug | fake-tested end-to-end; 2026-11-14 hardware partial — no HDMI audio endpoint on this rig (DP only): skip + restore paths logged; real switch pending a display with audio (projector) |
+| H16 | Explorer restart (`TaskbarCreated`) | tray icon re-registers, exactly one icon, no monitor loop | PASS 2026-11-14 (U2718Q rig): explorer killed → `Taskbar recreated - re-registering tray icon` in beam.log, exactly 1 Beam process (PID 12316) |
+| H17 | Diagnostics bundle (A4) | zip on the Desktop contains **no** machine/user names; `summary.txt` sanitized | automated PASS (`Exporter_WritesZipWithSanitizedEntries`); PASS 2026-11-14 hardware run — in-process export, 4 entries, sanitize scan: no matches |
 | H18 | Fresh install on a clean Windows 11 VM | per-user install works from the GitHub Release download; uninstall leaves no residue | manual VM run pending |
 
 ## How to record a run
@@ -42,3 +42,51 @@ release notes (test-strategy.md §6 release checklist).
 Add the date, machine/projector model, Beam version (`beam help --json`) and result to
 the row (or append a dated note below the table), and paste the summary into the release
 notes of the `v*` tag.
+
+## Run log
+
+### 2026-11-14 — programmatic runbook, DELL U2718Q stand-in rig, Beam 0.2.0 (commit e60ba4f)
+
+Run driven via `SetDisplayConfig` (topology flags + `DISPLAYCONFIG_PATH_ACTIVE` toggles),
+which fires the same `WM_DISPLAYCHANGE` events as Win+P / a cable pull. Recorded
+2026-11-15. Evidence excerpts (timestamps from `%LOCALAPPDATA%\Beam\beam.log`):
+
+- **H16 PASS.** `taskkill /f /im explorer.exe`, restart, 10 s wait:
+  - `beam.log`: `[23:58:55.262] [tid=  2] [INFO] [Tray] Taskbar recreated - re-registering tray icon`
+  - `Get-Process`: exactly one `Beam` process, `Id=12316` (the tray).
+- **H17 PASS.** In-process export via `DiagnosticsBundleExporter` →
+  `C:\Users\patbaumgartner\OneDrive\Desktop\beam-diagnostics-20261114-235900.zip`:
+  - entries: `summary.txt` 381 B, `beam.log` 86736 B, `beam-detailed.jsonl` 132562 B,
+    `status.json` 225 B
+  - sanitize scan of every extracted entry for `patbaumgartner` and `MYXPS13PLUS`:
+    `(no matches)`
+  - `summary.txt` head: `Beam 0.2.0 - diagnostics summary` / `Session state: Idle` /
+    `Settings: enabled=True mode=True dpi=True nightLight=True keepAwake=True dnd=True audioToHdmi=True ...`
+- **H12 partial.** Real disconnect of the U2718Q at 22:39:20 was handled cleanly:
+  - `[22:39:20.893] [Monitor] Display change detected sessionState=Idle previousDisplays=2 currentDisplays=1 disconnect=True`
+  - `[22:39:21.109] [Monitor] Trigger evaluation triggerMet=False mirrored=False hasMismatch=False externalCount=0 totalPaths=1 evaluationMs=215`
+  - no further trigger events afterwards (no storm); session stayed `Idle`.
+  - Scripted unplug/replug ×3 could not run: the monitor had dropped out of the CCD
+    (`SetDisplayConfig` topology flags rc=31; `target 4165 not found among available
+    display paths`; PnP `Status=Unknown`, `DISPLAY\DELA0E9\4&255E004D&7&UID4165`).
+    Rerun after a physical power-cycle / re-plug of the U2718Q.
+- **H15 partial.** No HDMI/projector audio endpoint exists on this rig (DP only):
+  - `[21:58:24.657] [Fix] Extra skipped: no HDMI/projector audio endpoint found step=extras extra=audio endpoint=none previous={0.0.0.00000000}.{b9e68ab1-3509-4c25-97e1-064e36b3bd0b}`
+  - `[22:38:02.780] [Restore] Extra restored: default audio endpoint restored step=extras extra=audio endpoint={0.0.0.00000000}.{b9e68ab1-3509-4c25-97e1-064e36b3bd0b} stillExists=False`
+  - The actual endpoint switch stays open until a display with an audio endpoint
+    (real projector) is attached.
+- **Finding (2026-11-14, 22:37 duplicate run).** The fix applied clone + CDS
+  `1920x1080@60` to the shared source successfully, then verify-after-mode failed
+  250 ms later:
+  - `[22:37:56.140] [DisplayMode] CDS apply gdiName=\\.\DISPLAY1 mode=1920x1080@60Hz result=0` /
+    `[22:37:56.140] 16:9 mode applied successfully ... appliedMode=1920x1080@60Hz`
+  - `[22:37:56.389] [Fix] Topology after mode change topologyId=2 isMirrored=True activePaths=2 ... error="verify-after-mode failed: mirror aspect mismatch still present after apply"`
+  - `PresentationManager.cs` re-queries the topology immediately after
+    `ApplyCloneWith16x9` returns — no settle delay (the clone apply itself waits
+    `settleMs=1500`). Likely a stale-read race. The unwind was clean regardless:
+    DEVMODEs `3840x2400@60` / `1920x1080@60` restored, DPI 225% verified, Night Light
+    restored, audio endpoint restored, session back to `Idle` (`restore complete`).
+  - Also noted: over DP the U2718Q reports a `1920x1080@60` preferred mode; the 16:9
+    candidates were `1920x1080@60, 2048x1152@60, 1920x1080@30` (no `3840x2160`), so the
+    4K rows (H6/H14) still need a real 4K display.
+- **H7** (sleep/wake) still pending a physical wake with the monitor attached.
