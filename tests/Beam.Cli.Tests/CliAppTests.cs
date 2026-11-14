@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Beam.App.Journal;
 using Beam.Core.Display;
+using Beam.Core.Status;
 
 namespace Beam.Cli.Tests;
 
@@ -113,6 +114,82 @@ public class CliAppTests
         Assert.True(doc.RootElement.GetProperty("needsFix").GetBoolean());
         Assert.True(doc.RootElement.GetProperty("mirrored").GetBoolean());
         Assert.Equal(2, doc.RootElement.GetProperty("displays").GetArrayLength());
+    }
+
+    // ── B6: live tray session block ───────────────────────────────────────────
+
+    [Fact]
+    public void Status_Json_IncludesSessionBlock_WhenTrayStatusPresent()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.StatusReader = () => new StatusFileRecord(
+            "Active", "fix sequence complete", "2026-11-14T10:00:00+00:00", 4321,
+            "1920x1080@60", 100, true);
+
+        int code = h.Run("status", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        JsonElement session = doc.RootElement.GetProperty("session");
+        Assert.Equal(JsonValueKind.Object, session.ValueKind);
+        Assert.Equal("Active", session.GetProperty("state").GetString());
+        Assert.Equal("fix sequence complete", session.GetProperty("reason").GetString());
+        Assert.Equal(4321, session.GetProperty("pid").GetInt32());
+        Assert.Equal("1920x1080@60", session.GetProperty("appliedSourceMode").GetString());
+        Assert.Equal(100, session.GetProperty("appliedDpiPercent").GetInt32());
+        Assert.True(session.GetProperty("nightLightDisabled").GetBoolean());
+    }
+
+    [Fact]
+    public void Status_Text_IncludesSessionLine_WhenTrayStatusPresent()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.StatusReader = () => new StatusFileRecord(
+            "Active", "fix sequence complete", "2026-11-14T10:00:00+00:00", 4321,
+            "1920x1080@60", 100, true);
+
+        int code = h.Run("status");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Contains("Session: Active", h.Output);
+        Assert.Contains("applied=1920x1080@60", h.Output);
+    }
+
+    [Fact]
+    public void Status_Json_SessionIsNull_WhenNoTrayRunning()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.StatusReader = () => null;
+
+        int code = h.Run("status", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("session").ValueKind);
+    }
+
+    [Fact]
+    public void Status_NoSessionLine_WhenReaderAbsent()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+
+        int code = h.Run("status");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.DoesNotContain("Session:", h.Output);
+    }
+
+    [Fact]
+    public void Status_ThrowingReader_StillSucceeds()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.StatusReader = () => throw new InvalidOperationException("simulated read failure");
+
+        int code = h.Run("status", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("session").ValueKind);
     }
 
     [Fact]
@@ -369,5 +446,88 @@ public class CliAppTests
         int code = h.Run("nightlight", "maybe");
 
         Assert.Equal(ExitCodes.InvalidArguments, code);
+    }
+
+    // ── Phase A (A1): single-instance lock on mutating commands ─────────────────
+
+    [Fact]
+    public void MutatingCommand_AcquiresAndReleasesLock()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        int acquires = 0;
+        bool disposed = false;
+        h.LockFactory = () =>
+        {
+            acquires++;
+            return new FakeLease(() => disposed = true);
+        };
+
+        int code = h.Run("nightlight", "off");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(1, acquires);
+        Assert.True(disposed, "the lock lease must be released after the command completes");
+    }
+
+    [Fact]
+    public void MutatingCommand_WhenLockUnavailable_FailsWithoutTouchingAnything()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.LockFactory = () => null;
+
+        int code = h.Run("apply");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Contains("single-instance", h.Errors);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Journal.BeginCalls);
+    }
+
+    [Theory]
+    [InlineData("status")]
+    [InlineData("devices")]
+    [InlineData("help")]
+    public void ReadOnlyCommands_NeverAcquireTheLock(string command)
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        int acquires = 0;
+        h.LockFactory = () =>
+        {
+            acquires++;
+            return new FakeLease(() => { });
+        };
+
+        int code = h.Run(command);
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(0, acquires);
+    }
+
+    [Fact]
+    public void DpiRead_DoesNotAcquireLock_ButDpiSet_Does()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        h.Dpi.ReadResult = ScaleAt200;
+        int acquires = 0;
+        h.LockFactory = () =>
+        {
+            acquires++;
+            return new FakeLease(() => { });
+        };
+
+        Assert.Equal(ExitCodes.Success, h.Run("dpi", "read"));
+        Assert.Equal(0, acquires);
+
+        Assert.Equal(ExitCodes.Success, h.Run("dpi", "set", "150"));
+        Assert.Equal(1, acquires);
+    }
+
+    private sealed class FakeLease : IDisposable
+    {
+        private readonly Action _onDispose;
+
+        public FakeLease(Action onDispose) => _onDispose = onDispose;
+
+        public void Dispose() => _onDispose();
     }
 }

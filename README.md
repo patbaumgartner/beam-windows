@@ -37,16 +37,28 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
 - 🖥️ **Automatic trigger** — watches displays, and the moment an external 16:9 panel is
   mirrored with an aspect mismatch, Beam goes to work.
 - 📐 **Best-fit 16:9** — picks the highest supported 16:9 mode the shared source actually
-  supports (60 Hz preferred, 30 Hz fallback) instead of hard-coding a resolution.
+  supports (60 Hz preferred, 30 Hz fallback), with the projector's **native 16:9 mode
+  ranked first** (switchable in Settings) instead of hard-coding a resolution.
 - 🔍 **Readable DPI** — scales the shared source to a sane value via the same undocumented
   API the Settings app uses.
 - 🌙 **Night Light awareness** — temporarily disables the *real* Windows Night Light
   (CloudStore state, verified by re-read) and restores it semantically on disconnect.
-- ↩️ **Exact rollback** — restores topology, sourced resolutions, and Night Light when the
-  display goes away. Safe even if Beam is killed mid-fix.
-- 🖱️ **Responsive tray menu** — status, Pause/Resume, **Launch at sign-in**, a **Settings**
-  submenu (enable switch, Night Light, policy toggles), *Apply projector mode now*, *Undo
-  projector mode* (one-click revert while presenting), *Open log folder*.
+- ↩️ **Exact rollback** — restores topology, sourced resolutions, Night Light, DPI, and the
+  extras when the display goes away. Safe even if Beam is killed mid-fix.
+- 😴 **Presentation extras** — while presenting: keep the display awake, silence
+  notification toasts (Do Not Disturb), switch audio to the projector's HDMI output. Each
+  is switchable in Settings, and a failing extra never breaks the fix.
+- 🎛️ **Settings window** — enable/hotkey, pause preset (15 min / 1 h / indefinite),
+  projector-mode policy (prefer native 16:9, fixed DPI target, Night Light, restore on
+  disconnect), extras, a known-devices table (auto-apply / ignore / forget), and advanced
+  options (export settings, open log folder, safe-mode indicator + reset).
+- 🧯 **Diagnostics window** — live 200-event timeline, a copyable summary, and a sanitized
+  export bundle (no machine/user names) to attach to a bug report, plus re-evaluate-now and
+  safe-mode reset.
+- 🖱️ **Responsive tray menu** — rich status header, Pause/Resume plus **Pause for 15 min /
+  1 h**, **Launch at sign-in**, **Settings…**, **Diagnostics…**, *Apply projector mode now*
+  (with the global-hotkey hint), *Undo projector mode* (one-click revert while presenting),
+  *Open log folder*.
 - 💠 **High-beam icon** — the tray icon and the `Beam.exe` icon are the scalable SVG in
   Pantone 638C over a deep halo, rasterised by `installer/generate-icon.ps1`; rendered
   crisp at any size and readable on light and dark taskbars (icon by I Create Stuff,
@@ -55,7 +67,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 574 xUnit tests, with the application layer driven entirely through
+- 🧪 **Tested** — 794 xUnit tests, with the application layer driven entirely through
   fake ports. Core is at ~95% line coverage and App at ~98%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
@@ -94,19 +106,21 @@ The suite runs on any Windows machine with the SDK; no projector is required. Se
 
 | Menu item | What it does |
 |---|---|
-| **Status** | Current session state (read-only) |
+| **Status** | Rich session header (read-only) |
 | **Pause / Resume** | Stop / restart reacting to display changes |
+| **Pause for 15 min / 1 h** | Timed pause with automatic resume |
 | **Launch at sign-in** | Add/remove Beam from Windows startup (HKCU Run key) |
-| **Settings ▸** | Enable Beam switch, manual Night Light toggle, **Policy** submenu (control display mode / DPI / Night Light in the fix) |
-| **Apply projector mode now** | Manually run the fix; enabled only while idle |
-| **Undo projector mode** | One-click revert of an active fix (mode + DPI + Night Light); enabled only while presenting |
+| **Settings…** | Opens the settings window (general, projector mode, extras, devices, advanced) |
+| **Diagnostics…** | Live event timeline, copy summary, sanitized export bundle, re-evaluate now, reset safe mode |
+| **Apply projector mode now** | Manually run the fix (shows the global-hotkey hint); enabled only while idle |
+| **Undo projector mode** | One-click revert of an active fix (mode + DPI + Night Light + extras); enabled only while presenting |
 | **Open log folder** | Opens `%LOCALAPPDATA%\Beam` with `beam.log` / `beam-detailed.jsonl` |
 | **Exit Beam** | Quit |
 
 ### CLI
 
 ```text
-beam status [--json]                 Current topology + what Beam would do
+beam status [--json]                 Current topology + the running tray's live `session` block (via status.json)
 beam devices [--json]                Every display path, active and inactive
 beam apply [--dry-run] [--json]      Run the fix (or print the plan only)
 beam restore [--nightlight] [--json]  Roll back (optionally re-enable Night Light)
@@ -169,7 +183,7 @@ That split also means the pure engine can be donated to PowerToys as-is
 | [`src/Beam.Core`](src/Beam.Core) | Pure domain: topology model, trigger, DPI planning, Night Light codec, ports |
 | [`src/Beam.App`](src/Beam.App) | UI-free application layer: session state machine, presentation sequence, journal, file logging |
 | [`src/Beam.Windows`](src/Beam.Windows) | Thin Win32/WinRT adapters that implement the Core ports |
-| [`src/Beam.Tray`](src/Beam.Tray) | WinForms tray composition root (`Beam.exe`) |
+| [`src/Beam.Tray`](src/Beam.Tray) | Composition root: WinForms tray + WPF settings/diagnostics windows (`Beam.exe`) |
 | [`src/Beam.Cli`](src/Beam.Cli) | Scriptable CLI composition root (`Beam.Cli.exe`, invoked as `beam`) |
 | [`tests/`](tests) | Six xUnit projects: Core, App, Windows, Tray, CLI, Architecture |
 | [`eng/`](eng) | Coverage reporter/gate and Markdown link checker used by CI |
@@ -197,7 +211,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 574 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 794 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Mutation | `pwsh eng/mutation-test.ps1` | zero surviving mutants (weak tests / dead code flagged) |
@@ -210,7 +224,10 @@ against the hardware matrix in [test-strategy.md](docs/05-delivery/test-strategy
 ## Roadmap & status
 
 Phase 0–5 milestones are tracked in [docs/05-delivery/roadmap.md](docs/05-delivery/roadmap.md).
-Current status: **tray MVP shipped**, CLI shipped, installer + CI shipping. The long-term
+Current status: **0.2.0 "Presenter Edition" shipped 2026-11-14** — tray, CLI, installer +
+CI, settings & diagnostics windows, presentation extras, signed releases (ADR-0016).
+Hardware verification runs are tracked in
+[docs/05-delivery/hardware-matrix.md](docs/05-delivery/hardware-matrix.md). The long-term
 goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).
 
 ## Contributing

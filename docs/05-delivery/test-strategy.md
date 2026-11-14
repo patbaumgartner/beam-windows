@@ -158,6 +158,8 @@ more than a rounding error needs a justification in the pull request.
 ### 4.1 Hardware matrix
 
 Run before a release and record the result in the release notes or pull request.
+Results per release (including the 0.2.0 presenter-edition rows H11–H18) are logged in
+[hardware-matrix.md](hardware-matrix.md).
 
 | ID | Setup | Checks |
 |---|---|---|

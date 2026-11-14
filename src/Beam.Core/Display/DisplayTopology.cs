@@ -39,6 +39,11 @@ public static class DisplayTopologyId
 /// <param name="DevicePath">The monitor device interface path (stable across reconnects).</param>
 /// <param name="IsInternal">True for the built-in panel.</param>
 /// <param name="IsAvailable">False when the target exists in the path list but has no display.</param>
+/// <param name="NativeMode">
+/// B2/V8: the monitor's EDID-native ("preferred") mode from
+/// <c>DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_PREFERRED_MODE</c>, when it could be read.
+/// Null for fakes and when the read fails.
+/// </param>
 public sealed record DisplayTarget(
     string FriendlyName,
     string Manufacturer,
@@ -46,7 +51,8 @@ public sealed record DisplayTarget(
     string OutputTechnology,
     string DevicePath,
     bool IsInternal,
-    bool IsAvailable)
+    bool IsAvailable,
+    DisplayMode? NativeMode = null)
 {
     /// <summary>A stable identity for profiles, independent of connector instance.</summary>
     public string Identity => string.IsNullOrEmpty(DevicePath)
@@ -151,66 +157,82 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
         ActivePaths.FirstOrDefault(p => p.Target.IsInternal);
 
     /// <summary>Active paths that are not the internal panel.</summary>
-    public IReadOnlyList<DisplayPath> ExternalPaths =>
-        ActivePaths.Where(p => !p.Target.IsInternal).ToList();
+    public IReadOnlyList<DisplayPath> ExternalPaths => ExternalPathsIgnoring(null);
+
+    /// <summary>
+    /// B5: active external paths, minus paths whose target identity is in
+    /// <paramref name="ignoredIdentities"/> ("Ignore this display").
+    /// </summary>
+    public IReadOnlyList<DisplayPath> ExternalPathsIgnoring(IReadOnlyCollection<string>? ignoredIdentities) =>
+        ActivePathsIgnoring(ignoredIdentities).Where(p => !p.Target.IsInternal).ToList();
+
+    /// <summary>Active paths, minus ignored target identities; the unfiltered list when null/empty.</summary>
+    private IReadOnlyList<DisplayPath> ActivePathsIgnoring(IReadOnlyCollection<string>? ignoredIdentities) =>
+        ignoredIdentities is null || ignoredIdentities.Count == 0
+            ? ActivePaths
+            : ActivePaths.Where(p => !ignoredIdentities.Contains(p.Target.Identity)).ToList();
 
     /// <summary>
     /// True when an external display is mirrored (loop-back sources share one desktop
     /// width/height) and its owned target signal differs from the shared source aspect —
     /// the condition that produces black bars.
     /// </summary>
-    public bool HasMirrorAspectMismatch
+    public bool HasMirrorAspectMismatch => HasMirrorAspectMismatchIgnoring(null);
+
+    /// <summary>
+    /// B5 variant of <see cref="HasMirrorAspectMismatch"/>: ignored target identities are
+    /// filtered out of the active paths <em>before</em> grouping, so a clone group that
+    /// only differs on an ignored display does not count as a mismatch.
+    /// </summary>
+    public bool HasMirrorAspectMismatchIgnoring(IReadOnlyCollection<string>? ignoredIdentities)
     {
-        get
+        if (!IsMirrored)
         {
-            if (!IsMirrored)
+            // Two separate sources, each driving one target: extend-mode "same shape"
+            // coincidences must not count. The OS topology id is the only reliable
+            // signal for "duplicate".
+            return false;
+        }
+
+        // Group by desktop identity (source size + position), not source id: on this
+        // machine Windows 11 represents "Duplicate" as two sources sharing a desktop.
+        var groups = ActivePathsIgnoring(ignoredIdentities)
+            .GroupBy(p => (p.SourceMode?.Width ?? 0, p.SourceMode?.Height ?? 0, p.DesktopX, p.DesktopY))
+            .Where(g => g.Count() > 1)
+            .ToList();
+
+        if (groups.Count == 0)
+        {
+            return false;
+        }
+
+        foreach (var group in groups)
+        {
+            DisplayMode? mode = group.First().SourceMode;
+            if (mode is null)
             {
-                // Two separate sources, each driving one target: extend-mode "same shape"
-                // coincidences must not count. The OS topology id is the only reliable
-                // signal for "duplicate".
-                return false;
+                continue;
             }
 
-            // Group by desktop identity (source size + position), not source id: on this
-            // machine Windows 11 represents "Duplicate" as two sources sharing a desktop.
-            var groups = ActivePaths
-                .GroupBy(p => (p.SourceMode?.Width ?? 0, p.SourceMode?.Height ?? 0, p.DesktopX, p.DesktopY))
-                .Where(g => g.Count() > 1)
-                .ToList();
+            uint width = mode.Width;
+            uint height = mode.Height;
 
-            if (groups.Count == 0)
+            foreach (DisplayPath path in group)
             {
-                return false;
-            }
-
-            foreach (var group in groups)
-            {
-                DisplayMode? mode = group.First().SourceMode;
-                if (mode is null)
+                DisplayMode? targetMode = path.TargetMode;
+                if (targetMode is null)
                 {
                     continue;
                 }
 
-                uint width = mode.Width;
-                uint height = mode.Height;
-
-                foreach (DisplayPath path in group)
+                if (AspectRatio.Mismatch(width, height, targetMode.Width, targetMode.Height))
                 {
-                    DisplayMode? targetMode = path.TargetMode;
-                    if (targetMode is null)
-                    {
-                        continue;
-                    }
-
-                    if (AspectRatio.Mismatch(width, height, targetMode.Width, targetMode.Height))
-                    {
-                        return true;
-                    }
+                    return true;
                 }
             }
-
-            return false;
         }
+
+        return false;
     }
 
     public override string ToString() =>

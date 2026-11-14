@@ -66,6 +66,85 @@ public class DisplayModeControllerTests
     }
 
     [Fact]
+    public void Rank16x9_Native16x9Mode_IsBoostedToFront()
+    {
+        // B2/V8: the projector's EDID-native 1920x1080@60 wins over the 4K mode the
+        // laptop source also supports.
+        var modes = new[]
+        {
+            Mode(3840, 2160, 60),
+            Mode(1920, 1080, 60), // EDID-native of the projector
+            Mode(1280, 720, 60),
+        };
+
+        var ranked = DisplayModeController.Rank16x9(modes, Mode(1920, 1080, 60));
+
+        Assert.Equal(1920u, ranked[0].Width);
+        Assert.Equal(1080u, ranked[0].Height);
+        Assert.Equal(3, ranked.Count); // reorder only — nothing dropped
+    }
+
+    [Fact]
+    public void Rank16x9_Native30HzProjector_30HzVariantWinsOver60()
+    {
+        // A 30 Hz-only room: native 1920x1080@30 must beat the @60 variant at the
+        // same resolution, otherwise the projector gets a signal it cannot show.
+        var modes = new[]
+        {
+            Mode(1920, 1080, 60),
+            Mode(1920, 1080, 30), // native
+        };
+
+        var ranked = DisplayModeController.Rank16x9(modes, Mode(1920, 1080, 30));
+
+        Assert.Equal(30.0, ranked[0].RefreshHz);
+    }
+
+    [Fact]
+    public void Rank16x9_NativeRefreshTolerance_59p94Matches60()
+    {
+        // The CCD API reports 60000/1001 (59.94) while the driver list says 60.
+        var modes = new[] { Mode(1920, 1080, 30), Mode(1920, 1080, 60) };
+
+        var ranked = DisplayModeController.Rank16x9(modes, Mode(1920, 1080, 60000.0 / 1001.0));
+
+        Assert.Equal(60.0, ranked[0].RefreshHz);
+    }
+
+    [Fact]
+    public void Rank16x9_NativeNot16x9_IsIgnored()
+    {
+        var modes = new[] { Mode(3840, 2160, 60), Mode(1920, 1080, 60) };
+        var native = Mode(1920, 1200, 60); // 16:10 native panel — must not be boosted
+
+        var ranked = DisplayModeController.Rank16x9(modes, native);
+
+        Assert.Equal(3840u, ranked[0].Width); // unchanged pixels-first order
+        Assert.DoesNotContain(ranked, m => m.Height == 1200);
+    }
+
+    [Fact]
+    public void Rank16x9_NativeNotInDriverList_IsIgnored()
+    {
+        var modes = new[] { Mode(3840, 2160, 60), Mode(1920, 1080, 60) };
+
+        var ranked = DisplayModeController.Rank16x9(modes, Mode(2560, 1440, 60));
+
+        Assert.Equal(3840u, ranked[0].Width);
+        Assert.Equal(2, ranked.Count);
+    }
+
+    [Fact]
+    public void Rank16x9_NullNativeMode_KeepsPixelsFirst()
+    {
+        var modes = new[] { Mode(1920, 1080, 60), Mode(3840, 2160, 60) };
+
+        var ranked = DisplayModeController.Rank16x9(modes, null);
+
+        Assert.Equal(3840u, ranked[0].Width);
+    }
+
+    [Fact]
     public void BoundedCandidates_CapsAtMaxCandidates()
     {
         // UC-12 rule 5: no matter how many modes a driver reports, at most

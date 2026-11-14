@@ -1,14 +1,15 @@
 # Releasing
 
 Beam versions itself from the `Version` property in
-[`Directory.Build.props`](../../Directory.Build.props) (currently `0.1.1`). The version is
+[`Directory.Build.props`](../../Directory.Build.props) (currently `0.2.0`). The version is
 stamped into the assemblies at build time and into the installer at packaging time.
 
 ## Version scheme
 
-- `0.1.1` — the current patch line shipping the Nov-1 fixes (sticky cursor, decoupling).
-  A bump to `0.2.0` means user-visible features; a `0.1.2` bump means bug fixes on this
-  line.
+- `0.2.0` — **Presenter Edition** (2026-11-14): settings + diagnostics windows,
+  presentation extras, signed releases. A `0.3.0` bump means user-visible features; a
+  `0.2.x` bump means bug fixes on this line.
+- `0.1.1` — the patch line shipping the Nov-1 fixes (sticky cursor, decoupling).
 - The **snapshot** label is always built from the latest `main` and is *not* a version — it
   is a rolling preview so the newest fixes are one click away.
 
@@ -28,7 +29,7 @@ dotnet format Beam.sln --verify-no-changes
 pwsh eng/check-links.ps1
 
 # Build the installer:
-.\installer\build.ps1                    # -> artifacts\BeamSetup-0.1.1.exe
+.\installer\build.ps1                    # -> artifacts\BeamSetup-0.2.0.exe
 .\installer\build.ps1 -Version 0.2.0     # version override
 ```
 
@@ -66,7 +67,11 @@ installer and republishes it to the `snapshot` GitHub release (`make_latest: tru
 1. Resolve the version from the tag (`v0.2.0` → `0.2.0`).
 2. Publish tray + CLI with that version.
 3. Build the installer with Inno Setup (downloaded in the runner).
-4. Create a GitHub release with the installer attached, generating release notes.
+4. Sign `Beam.exe`, `Beam.Cli.exe` and `BeamSetup-<version>.exe` with Azure Trusted
+   Signing via `installer\sign.ps1 -Mode AzureTrustedSigning` (credentials from GitHub
+   Actions secrets), then gate with `-Mode Verify` — a release with an unsigned artifact
+   fails ([ADR-0016](../04-adr/ADR-0016-signing-and-distribution.md)).
+5. Create a GitHub release with the signed installer attached, generating release notes.
 
 So releasing is just:
 

@@ -25,8 +25,9 @@ public sealed class DisplayModeController : IDisplayModeController
     private sealed record DevModeSnapshot(string GdiName, uint Width, uint Height, uint Frequency);
 
     /// <summary>Enters clone (duplicate) mode and switches the shared source to 16:9.</summary>
+    /// <param name="preferNative">C1/B2: rank the EDID-native 16:9 mode first (default true).</param>
     /// <returns>Null on success; an error message if the mode change was rejected.</returns>
-    public string? ApplyCloneWith16x9()
+    public string? ApplyCloneWith16x9(bool preferNative = true)
     {
         var sw = Stopwatch.StartNew();
 
@@ -67,14 +68,23 @@ public sealed class DisplayModeController : IDisplayModeController
 
         string gdi = primary.SourceGdiName;
 
+        // B2/V8: the mode we want on the shared source is the projector's EDID-native
+        // 16:9 mode, so rank it first. First external target with a 16:9 native mode.
+        DisplayMode? nativeMode = topology.ActivePaths
+            .Where(p => !p.Target.IsInternal)
+            .Select(p => p.Target.NativeMode)
+            .FirstOrDefault(m => m is not null && AspectRatio.Classify(m) == AspectKind.SixteenNine);
+
         Log.Info("Found shared source after clone", "DisplayMode",
             ("gdiName", gdi),
             ("sourceId", primary.SourceId.ToString()),
             ("sourceMode", primary.SourceMode?.ToString() ?? "null"),
+            ("nativeMode", nativeMode?.ToString() ?? "none"),
             ("topology", topology.ToString()));
 
-        // 3) Find the best 16:9 mode the shared source supports. 60 Hz first; 30 Hz fallback.
-        string? modeError = TrySet16x9(gdi);
+        // 3) Find the best 16:9 mode the shared source supports. Native 16:9 first
+        // (C1 policy toggle); then highest pixels, 60 Hz first, 30 Hz fallback.
+        string? modeError = TrySet16x9(gdi, nativeMode, preferNative);
 
         sw.Stop();
         Log.Info("ApplyCloneWith16x9 complete", "DisplayMode",
@@ -86,15 +96,16 @@ public sealed class DisplayModeController : IDisplayModeController
         return modeError;
     }
 
-    private string? TrySet16x9(string gdi)
+    private string? TrySet16x9(string gdi, DisplayMode? nativeMode = null, bool preferNative = true)
     {
         // Pick the best 16:9 mode the display actually supports instead of hard-coding.
         // UC-12 rule 5: bounded to MaxCandidates attempts so a flaky driver cannot
         // keep us mutating forever.
-        IReadOnlyList<DisplayMode> ranked = BoundedCandidates(SelectBest16x9(gdi));
+        IReadOnlyList<DisplayMode> ranked = BoundedCandidates(SelectBest16x9(gdi, nativeMode, preferNative));
 
         Log.Info("Ranking 16:9 modes for shared source", "DisplayMode",
             ("gdiName", gdi),
+            ("nativeMode", nativeMode?.ToString() ?? "none"),
             ("candidateCount", ranked.Count),
             ("candidates", string.Join(", ", ranked.Select(m => $"{m.Width}x{m.Height}@{m.RefreshHz}Hz"))));
 
@@ -190,22 +201,43 @@ public sealed class DisplayModeController : IDisplayModeController
         activePathCount > 1 ? SdcTopologyExtend : SdcTopologyInternal;
 
     /// <summary>
-    /// Ranks 16:9 modes: highest pixels first, then 60 Hz over 30 Hz, then highest refresh.
-    /// Pure helper so the ranking can be unit tested.
+    /// Ranks 16:9 modes: the EDID-native 16:9 mode first (B2/V8, when
+    /// <paramref name="preferNative"/> is on — C1 policy), then highest pixels,
+    /// then 60 Hz over 30 Hz, then highest refresh. Pure helper so the ranking can be
+    /// unit tested. The native boost is a reorder only — never invents or drops modes.
     /// </summary>
-    internal static IReadOnlyList<DisplayMode> Rank16x9(IEnumerable<DisplayMode> modes) =>
-        modes
+    internal static IReadOnlyList<DisplayMode> Rank16x9(
+        IEnumerable<DisplayMode> modes, DisplayMode? nativeMode = null, bool preferNative = true)
+    {
+        ArgumentNullException.ThrowIfNull(modes);
+
+        return modes
             .Where(m => AspectRatio.Classify(m) == AspectKind.SixteenNine)
-            .OrderByDescending(m => m.Pixels)
+            .OrderByDescending(m => preferNative && IsNativeMode(m, nativeMode) ? 1 : 0)
+            .ThenByDescending(m => m.Pixels)
             .ThenBy(m => m.RefreshHz == 60 ? 0 : (m.RefreshHz == 30 ? 1 : 2))
             .ThenByDescending(m => m.RefreshHz)
             .ToList();
+    }
 
     /// <summary>
-    /// Ranks the 16:9 modes a display reports, highest pixels first, 60 Hz over 30 Hz.
+    /// True when <paramref name="mode"/> is the display's EDID-native mode: same pixel
+    /// size and a refresh rate within 0.5 Hz (absorbs 59.94-style rationals vs the
+    /// driver's rounded 60).
     /// </summary>
-    internal static IReadOnlyList<DisplayMode> SelectBest16x9(string gdi) =>
-        Rank16x9(DisplayInventory.GetAvailableModes(gdi));
+    private static bool IsNativeMode(DisplayMode mode, DisplayMode? nativeMode) =>
+        nativeMode is not null
+        && mode.Width == nativeMode.Width
+        && mode.Height == nativeMode.Height
+        && Math.Abs(mode.RefreshHz - nativeMode.RefreshHz) <= 0.5;
+
+    /// <summary>
+    /// Ranks the 16:9 modes a display reports: native 16:9 first (when
+    /// <paramref name="preferNative"/>), then highest pixels, 60 Hz over 30 Hz.
+    /// </summary>
+    internal static IReadOnlyList<DisplayMode> SelectBest16x9(
+        string gdi, DisplayMode? nativeMode = null, bool preferNative = true) =>
+        Rank16x9(DisplayInventory.GetAvailableModes(gdi), preferNative ? nativeMode : null);
 
     /// <summary>Restores the original display topology and source modes.</summary>
     /// <returns>An error message, or null on success.</returns>

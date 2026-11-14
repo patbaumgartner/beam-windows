@@ -4,6 +4,9 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <!-- C1/C4: the settings and diagnostics windows are WPF, hosted inside the single
+         tray exe — no MSIX/WinUI packaging needed, the Inno installer stays one file. -->
+    <UseWPF>true</UseWPF>
     <AssemblyName>Beam</AssemblyName>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <Product>Beam</Product>

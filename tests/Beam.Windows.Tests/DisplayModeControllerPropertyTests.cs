@@ -85,6 +85,101 @@ public class DisplayModeControllerPropertyTests
     }
 
     [Fact]
+    public void Rank16x9_WithNativeMode_OutputIsSubset_All169_NativeFirstWhenPresent()
+    {
+        // B2 property: with a random EDID-native mode, the ranked output is still a
+        // pure reorder of the 16:9 input subset, and when the native mode is a 16:9
+        // member of the input it is ranked first.
+        var rng = new Random(99);
+
+        for (int trial = 0; trial < 200; trial++)
+        {
+            var input = Enumerable.Range(0, rng.Next(0, 25))
+                .Select(_ => Mode(Dims[rng.Next(Dims.Length)], Dims[rng.Next(Dims.Length)], 30 + rng.Next(0, 91)))
+                .ToList();
+
+            // Random native mode: sometimes a member of the input, sometimes not.
+            DisplayMode? native = rng.Next(2) == 0 && input.Count > 0
+                ? input[rng.Next(input.Count)]
+                : Mode(Dims[rng.Next(Dims.Length)], Dims[rng.Next(Dims.Length)], 30 + rng.Next(0, 91));
+
+            IReadOnlyList<DisplayMode> ranked = DisplayModeController.Rank16x9(input, native);
+
+            Assert.All(ranked, m => Assert.Contains(m, input)); // reorder only — never invents a mode
+            Assert.All(ranked, m => Assert.Equal(AspectKind.SixteenNine, AspectRatio.Classify(m)));
+            Assert.True(ranked.Count <= input.Count);
+
+            if (native is not null
+                && AspectRatio.Classify(native) == AspectKind.SixteenNine
+                && input.Any(m => m.Width == native.Width && m.Height == native.Height
+                    && Math.Abs(m.RefreshHz - native.RefreshHz) <= 0.5))
+            {
+                // The matched mode has the same w/h as a 16:9 native mode, so it is
+                // 16:9 itself and therefore present in the ranked list.
+                DisplayMode expected = input.First(m => m.Width == native.Width && m.Height == native.Height
+                    && Math.Abs(m.RefreshHz - native.RefreshHz) <= 0.5);
+                Assert.True(ranked.Count > 0);
+                Assert.Equal(expected, ranked[0]); // native 16:9 first
+            }
+        }
+    }
+
+    [Fact]
+    public void Rank16x9_PreferNativeFalse_NativeModeIsNotBoosted()
+    {
+        // C1: when the user turns "prefer native" off, the native 16:9 mode must NOT be
+        // ranked first — the ranking falls back to highest pixels, 60 Hz over 30 Hz.
+        var input = new[]
+        {
+            Mode(1920, 1080, 60),  // EDID-native 16:9
+            Mode(3840, 2160, 60),  // higher pixels
+            Mode(1920, 1080, 30),
+        };
+        DisplayMode native = Mode(1920, 1080, 60);
+
+        IReadOnlyList<DisplayMode> withNative = DisplayModeController.Rank16x9(input, native, preferNative: true);
+        IReadOnlyList<DisplayMode> withoutNative = DisplayModeController.Rank16x9(input, native, preferNative: false);
+
+        Assert.Equal(Mode(1920, 1080, 60), withNative[0]);   // native first when preferred
+        Assert.Equal(Mode(3840, 2160, 60), withoutNative[0]); // highest pixels first when not
+        Assert.Equal(3, withoutNative.Count);                 // reorder only — same members
+        Assert.All(withoutNative, m => Assert.Contains(m, input));
+    }
+
+    [Fact]
+    public void Rank16x9_PreferNativeFalse_StillSubsetOfInput_All169()
+    {
+        // C1 property: the preferNative flag only changes the order, never the membership.
+        var rng = new Random(2026);
+
+        for (int trial = 0; trial < 200; trial++)
+        {
+            var input = Enumerable.Range(0, rng.Next(0, 25))
+                .Select(_ => Mode(Dims[rng.Next(Dims.Length)], Dims[rng.Next(Dims.Length)], 30 + rng.Next(0, 91)))
+                .ToList();
+            DisplayMode? native = input.Count > 0 ? input[rng.Next(input.Count)] : null;
+
+            IReadOnlyList<DisplayMode> ranked = DisplayModeController.Rank16x9(input, native, preferNative: false);
+
+            Assert.All(ranked, m => Assert.Contains(m, input)); // never invents a mode
+            Assert.All(ranked, m => Assert.Equal(AspectKind.SixteenNine, AspectRatio.Classify(m)));
+            Assert.True(ranked.Count <= input.Count);
+            if (native is not null && ranked.Count > 0
+                && AspectRatio.Classify(native) == AspectKind.SixteenNine
+                && input.Any(m => m.Width == native.Width && m.Height == native.Height
+                    && Math.Abs(m.RefreshHz - native.RefreshHz) <= 0.5))
+            {
+                // Native present but NOT boosted: first place goes to the highest-pixels
+                // mode, which is not necessarily the native mode.
+                foreach (DisplayMode m in ranked.Skip(1))
+                {
+                    Assert.True(ranked[0].Pixels >= m.Pixels);
+                }
+            }
+        }
+    }
+
+    [Fact]
     public void RankThenBound_RandomInput_SubsetOfInput_AndCappedAtMaxCandidates()
     {
         // The full production pipeline (rank → bound, as used by TrySet16x9) must never

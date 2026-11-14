@@ -19,6 +19,10 @@ Full records live in `../04-adr/`.
 | ADR-0013 | DPI via source device-info `-3`/`-4` | Accepted (validated by S4) | High |
 | ADR-0014 | UI-free application layer and port boundary | Accepted | High |
 | ADR-0015 | Detection polling and bounded-time deviation (amends ADR-0007) | Accepted | Medium |
+| ADR-0016 | Sign releases in CI with Azure Trusted Signing; snapshots unsigned (answers O6) | Accepted | High |
+| ADR-0017 | Presentation extras: keep-awake, DND, audio-to-HDMI via ports; never fail the session | Accepted | Medium |
+| ADR-0018 | Native 16:9 mode ranked first by default ("prefer native", switchable) | Accepted | Medium |
+| ADR-0019 | Settings store: schema-v1 JSON, atomic writes, unknown-key preservation | Accepted | Medium |
 
 ## Decision dependencies
 
@@ -35,6 +39,10 @@ ADR-0001 (upstream)
   +-- ADR-0007 (detection)
     +-- ADR-0015 (detection polling deviation, amends ADR-0007)
   +-- ADR-0013 (DPI)
+  +-- ADR-0016 (signing/distribution, answers O6)
+  +-- ADR-0017 (extras: awake/DND/audio, amends UC-17 scope)
+  +-- ADR-0018 (native-mode ranking, refines ADR-0004/Q3)
+  +-- ADR-0019 (settings store, refines ADR-0009)
 ```
 
 ## Superseded / rejected alternatives

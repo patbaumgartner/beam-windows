@@ -99,4 +99,83 @@ public class TrayIconTests
 
         AssertBrandCyan(DominantOpaqueColor(bmp), $"DrawBeamIcon({size})");
     }
+
+    // ── B1: state badge rendering ─────────────────────────────────────────────
+
+    private static bool HasBadgePixel(Bitmap bmp, Color badge)
+    {
+        // The badge sits in the bottom-right corner; scan that quadrant for the badge fill.
+        int d = Math.Max(10, bmp.Width / 3);
+        int margin = Math.Max(2, bmp.Width / 16);
+        int cx = bmp.Width - d / 2 - margin;
+        int cy = bmp.Height - d / 2 - margin;
+        for (int y = Math.Max(0, cy - d / 2); y < bmp.Height; y++)
+        {
+            for (int x = Math.Max(0, cx - d / 2); x < bmp.Width; x++)
+            {
+                Color c = bmp.GetPixel(x, y);
+                if (c.A > 200
+                    && Math.Abs(c.R - badge.R) <= 40
+                    && Math.Abs(c.G - badge.G) <= 40
+                    && Math.Abs(c.B - badge.B) <= 40)
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    [Theory]
+    [InlineData(TrayBadge.Presenting)]
+    [InlineData(TrayBadge.Paused)]
+    [InlineData(TrayBadge.SafeMode)]
+    public void Draw_WithBadge_RendersBadgeInCorner(TrayBadge badge)
+    {
+        using var bmp = new Bitmap(64, 64);
+        using var g = Graphics.FromImage(bmp);
+        g.Clear(Color.Transparent);
+
+        TrayIconRenderer.Draw(g, 64, badge);
+
+        AssertBrandCyan(DominantOpaqueColor(bmp), $"Draw({badge}) brand mark"); // mark still there
+        Assert.True(HasBadgePixel(bmp, TrayIconRenderer.BadgeColor(badge)),
+            $"Draw({badge}): no badge-coloured pixel in the bottom-right corner");
+    }
+
+    [Fact]
+    public void Draw_WithoutBadge_HasNoBadgePixel()
+    {
+        using var bmp = new Bitmap(64, 64);
+        using var g = Graphics.FromImage(bmp);
+        g.Clear(Color.Transparent);
+
+        TrayIconRenderer.Draw(g, 64, TrayBadge.None);
+
+        foreach (TrayBadge badge in new[] { TrayBadge.Presenting, TrayBadge.Paused, TrayBadge.SafeMode })
+        {
+            Assert.False(HasBadgePixel(bmp, TrayIconRenderer.BadgeColor(badge)),
+                $"Draw(None): unexpected {badge} badge pixel");
+        }
+    }
+
+    [Theory]
+    [InlineData(TrayBadge.Presenting)]
+    [InlineData(TrayBadge.Paused)]
+    [InlineData(TrayBadge.SafeMode)]
+    [InlineData(TrayBadge.None)]
+    public void BadgeColor_IsDistinctPerState(TrayBadge badge)
+    {
+        // Every real badge must have a colour; None is transparent.
+        Color c = TrayIconRenderer.BadgeColor(badge);
+        if (badge == TrayBadge.None)
+        {
+            Assert.Equal(Color.Transparent, c);
+        }
+        else
+        {
+            Assert.True(c.A == 255, $"{badge}: badge colour must be opaque");
+        }
+    }
 }

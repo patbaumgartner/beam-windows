@@ -2,6 +2,7 @@ using Beam.App.Journal;
 using Beam.Core.Display;
 using Beam.Core.NightLight;
 using Beam.Core.Ports;
+using Beam.Core.Status;
 
 namespace Beam.Cli.Tests;
 
@@ -58,7 +59,7 @@ internal sealed class CliModeController : IDisplayModeController
     public int ApplyCalls { get; private set; }
     public int RestoreCalls { get; private set; }
 
-    public string? ApplyCloneWith16x9()
+    public string? ApplyCloneWith16x9(bool preferNative = true)
     {
         ApplyCalls++;
         return ApplyResult;
@@ -117,15 +118,19 @@ internal sealed class CliJournalStore : IJournalStore
     public int BeginCalls { get; private set; }
     public int ClearCalls { get; private set; }
     public IReadOnlyList<JournalDpiEntry>? LastDpi { get; private set; }
+    public JournalExtras? LastExtras { get; private set; }
 
     public void BeginApply(
         string reason,
         IReadOnlyList<NightLightSnapshot>? nightLight,
-        IReadOnlyList<JournalDpiEntry>? dpi = null)
+        IReadOnlyList<JournalDpiEntry>? dpi = null,
+        JournalExtras? extras = null)
     {
         BeginCalls++;
         LastDpi = dpi;
-        Record = new JournalRecord(true, reason, DateTimeOffset.Now.ToString("o"), null, dpi);
+        LastExtras = extras;
+        Record = new JournalRecord(
+            true, reason, DateTimeOffset.Now.ToString("o"), null, dpi, JournalRecord.CurrentVersion, extras);
     }
 
     public JournalRecord? Read() => Record;
@@ -153,10 +158,30 @@ internal sealed class CliHarness
     public StringWriter Out { get; } = new();
     public StringWriter Error { get; } = new();
 
-    public CliApp App => new(Topology, Mode, Dpi, NightLight, Journal, Out, Error);
+    /// <summary>
+    /// Lock factory injected into <see cref="CliApp"/>. Defaults to a no-op lease so
+    /// parallel tests never contend on the real Local\Beam.SingleInstance mutex;
+    /// the A1 lock tests replace it with a counting/failing factory.
+    /// </summary>
+    public Func<IDisposable?>? LockFactory { get; set; } = () => NoopLock.Instance;
+
+    /// <summary>B6: status-file reader injected into <see cref="CliApp"/> (null = no tray status).</summary>
+    public Func<StatusFileRecord?>? StatusReader { get; set; }
+
+    public CliApp App => new(Topology, Mode, Dpi, NightLight, Journal, Out, Error, LockFactory, StatusReader);
 
     public int Run(params string[] args) => App.Run(args);
 
     public string Output => Out.ToString();
     public string Errors => Error.ToString();
+}
+
+/// <summary>No-op lock lease for CLI tests that do not exercise the single-instance lock.</summary>
+internal sealed class NoopLock : IDisposable
+{
+    public static readonly NoopLock Instance = new();
+
+    public void Dispose()
+    {
+    }
 }

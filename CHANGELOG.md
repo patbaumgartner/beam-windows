@@ -4,7 +4,30 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Current version is **0.1.1** (per `installer/build.ps1` default).
+Current version is **0.2.0** (per `installer/build.ps1` default).
+
+## [Unreleased]
+
+## [0.2.0] — 2026-11-14
+
+**Presenter Edition** (plan: [docs/05-delivery/presenter-edition-plan.md](docs/05-delivery/presenter-edition-plan.md), Phases B–D).
+
+### Added
+- **Live status file** `%LOCALAPPDATA%\Beam\status.json` (atomic tmp+rename, 64 KiB read cap, never throws) plus a rich, length-capped tray status header; `beam status --json` merges a camelCase `session` block read from the running tray (B1/B6).
+- **"Prefer native 16:9" mode policy** — the EDID-native 16:9 mode is ranked first by default and the choice is switchable in Settings; ranking is pixels → 60 Hz over 30 Hz, always bounded (B2/C1, [ADR-0018](docs/04-adr/ADR-0018-native-mode-ranking.md)).
+- **Presentation extras**, default on and individually switchable: keep the display awake (`SetThreadExecutionState`), silence notification toasts (HKCU Focus Assist DWORD, snapshotted and restored), switch default audio to the HDMI/projector endpoint via `IPolicyConfig.SetDefaultEndpoint` obtained by casting the `MMDeviceEnumerator` coclass (B3, [ADR-0017](docs/04-adr/ADR-0017-presentation-extras.md)). Extras never fail the session (UC-17 AC3) and their state is crash-journaled.
+- **Persisted settings** at `%LOCALAPPDATA%\Beam\settings.json` — schema v1, atomic tmp+rename writes, unknown-key preservation, corrupt files set aside as `*.bad` with a single toast (B4, [ADR-0019](docs/04-adr/ADR-0019-settings-store.md)).
+- **Ignore-display** exclusions and a known-devices table (auto-apply / ignore / forget) gating the trigger (B5/C1).
+- **Global hotkey** (default `Win+Alt+P`) to apply/restore projector mode from anywhere (B7).
+- **Settings window** (WPF inside the single `Beam.exe` — no MSIX packaging needed): General (enable, hotkey, pause preset 15 min / 1 h / indefinite), Projector mode (mode policy incl. prefer-native, fixed DPI target, Night Light, restore-on-disconnect), Extras, Devices, Advanced (export settings, open log folder, safe-mode indicator + reset). Changes apply immediately with debounced persist (C1).
+- **Diagnostics window**: live 200-event timeline ring buffer, copy-summary, **export bundle** (zip written to the Desktop, sanitized — machine/user names redacted, A4), re-evaluate now, reset safe mode (C4).
+- **Tray menu polish**: timed-pause items ("Pause for 15 min" / "Pause for 1 h" next to the indefinite pause), shortcut hint on the Apply item, richer status header (C2); **first-run toast** shown exactly once (C3).
+- **Accessibility & localization pass**: all tray/window strings externalized (`TrayStrings`, structure ready for loc), UIA names on icon and menu, `TaskbarCreated` re-registration after Explorer restarts (C5).
+- **Signed releases**: `installer/sign.ps1` (Azure Trusted Signing in CI with RFC 3161 timestamps, signtool `-Mode Verify` gate); release artifacts are Authenticode-signed from v0.2.0, snapshot builds stay unsigned (A8/Phase D, [ADR-0016](docs/04-adr/ADR-0016-signing-and-distribution.md)).
+- **794 tests** (was 574 at 0.1.x): Architecture 11, Core 306, App 199, Windows 59, Tray 145, Cli 74 — including the Phase B/C property, settings round-trip, diagnostics-sanitization and tray view-model suites.
+
+### Changed
+- Version bumped to **0.2.0** in `Directory.Build.props`; `installer/build.ps1` default, `installer/Beam.iss`, the release workflow default tag and the bug-report template placeholder all point at 0.2.0.
 
 ## [0.1.1] — 2026-11-07
 

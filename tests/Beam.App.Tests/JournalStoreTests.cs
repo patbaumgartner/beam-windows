@@ -150,4 +150,104 @@ public class JournalStoreTests
             Directory.Delete(dir, recursive: true);
         }
     }
+
+    // ── Phase A (A2): atomic writes + schema hardening ──────────────────────────
+
+    [Fact]
+    public void BeginApply_WritesCurrentSchemaVersion()
+    {
+        string dir = TempDir();
+        try
+        {
+            var store = new JournalStore(dir);
+            store.BeginApply("test-fix", null);
+
+            Assert.Equal(JournalRecord.CurrentVersion, store.Read()!.Version);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Write_Twice_ReplacesAtomically_AndLeavesNoTmpFile()
+    {
+        string dir = TempDir();
+        try
+        {
+            var store = new JournalStore(dir);
+            store.BeginApply("first", null);
+            store.BeginApply("second", null);
+
+            Assert.Equal("second", store.Read()!.Reason);
+            Assert.False(
+                File.Exists(Path.Combine(dir, "journal.json.tmp")),
+                "the temp file must not linger after a successful atomic write");
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Read_LegacyJournalWithoutVersion_DefaultsToCurrentVersion()
+    {
+        string dir = TempDir();
+        try
+        {
+            // A 0.1.x journal has no Version field; it must still load.
+            File.WriteAllText(Path.Combine(dir, "journal.json"),
+                """{"IsActive":true,"Reason":"old","AppliedAt":"2026-01-01T00:00:00+00:00","NightLight":null,"Dpi":null}""");
+            var store = new JournalStore(dir);
+
+            JournalRecord? j = store.Read();
+
+            Assert.NotNull(j);
+            Assert.Equal(JournalRecord.CurrentVersion, j!.Version);
+            Assert.Equal("old", j.Reason);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Read_JournalFromNewerVersion_ReturnsNull()
+    {
+        string dir = TempDir();
+        try
+        {
+            File.WriteAllText(Path.Combine(dir, "journal.json"),
+                """{"IsActive":true,"Reason":"future","AppliedAt":"2026-01-01T00:00:00+00:00","NightLight":null,"Dpi":null,"Version":99}""");
+            var store = new JournalStore(dir);
+
+            Assert.Null(store.Read());
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Read_OversizedJournal_ReturnsNull()
+    {
+        string dir = TempDir();
+        try
+        {
+            File.WriteAllText(
+                Path.Combine(dir, "journal.json"),
+                new string('x', (int)JournalStore.MaxReadBytes + 1));
+            var store = new JournalStore(dir);
+
+            Assert.Null(store.Read());
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
 }

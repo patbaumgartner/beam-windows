@@ -227,6 +227,60 @@ public class FileLogSinkTests : IDisposable
             Write(LogLevel.Error, exception.Message, category, data);
     }
 
+    // ── Phase A (A3): log forging escapes + rotation ─────────────────────────────
+
+    [Fact]
+    public void Write_EscapesNewlines_InValues_SoLogsCannotBeForged()
+    {
+        var sink = new FileLogSink(_dir);
+
+        sink.Write(LogLevel.Info, "forged", "Test",
+            new[] { Pair("name", "x\r\n[INFO] [Fake] forged line") });
+
+        string[] lines = File.ReadAllLines(sink.LogPath);
+        Assert.Single(lines);
+        Assert.Contains(@"x\r\n[INFO] [Fake] forged line", lines[0]);
+
+        // The JSONL file keeps the real characters (JSON encoding is already safe).
+        using JsonDocument doc = JsonDocument.Parse(File.ReadAllText(sink.DetailedLogPath));
+        Assert.Equal("x\r\n[INFO] [Fake] forged line",
+            doc.RootElement.GetProperty("Data").GetProperty("name").GetString());
+    }
+
+    [Fact]
+    public void Write_EscapesNewlines_InMessage()
+    {
+        var sink = new FileLogSink(_dir);
+
+        sink.Write(LogLevel.Warn, "line1\nline2", "Test", Array.Empty<KeyValuePair<string, object?>>());
+
+        Assert.Single(File.ReadAllLines(sink.LogPath));
+        Assert.Contains(@"line1\nline2", File.ReadAllText(sink.LogPath));
+    }
+
+    [Fact]
+    public void Write_RotatesAtSizeCap_KeepingAtMostMaxBackups()
+    {
+        var sink = new FileLogSink(_dir, maxFileBytes: 200, maxBackups: 3);
+
+        for (int i = 0; i < 20; i++)
+        {
+            sink.Write(LogLevel.Info, $"message number {i} with some padding", "Test",
+                Array.Empty<KeyValuePair<string, object?>>());
+        }
+
+        Assert.True(File.Exists(sink.LogPath));
+        Assert.True(File.Exists(sink.LogPath + ".1"));
+        Assert.True(File.Exists(sink.LogPath + ".2"));
+        Assert.True(File.Exists(sink.LogPath + ".3"));
+        Assert.False(File.Exists(sink.LogPath + ".4"), "only maxBackups rotated files may exist");
+        Assert.True(new FileInfo(sink.LogPath).Length < 400, "current file restarts small after rotation");
+
+        // The detailed JSONL rotates on the same policy.
+        Assert.True(File.Exists(sink.DetailedLogPath + ".1"));
+        Assert.False(File.Exists(sink.DetailedLogPath + ".4"));
+    }
+
     private sealed class NullSink : ILogSink
     {
         public static readonly NullSink Instance = new();

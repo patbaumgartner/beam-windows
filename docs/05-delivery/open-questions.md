@@ -18,20 +18,16 @@ Everything that blocked the plan has been answered; the answers are recorded in
 | Q9 | Spikes first? | **Yes** — S1, S3, S4, S5, S6 gate the MVP |
 | Q10 | What counts as a "projector" | **Aspect mismatch on a new active external display** (covers TV + projector); classification optional |
 
+## Answered (2026-11-14, Phase D)
+
+| # | Question | Answer |
+|---|---|---|
+| O1 | Which hardware is available? | **This laptop (16:10 panel @ 200%) + a DELL U2718Q 16:9 monitor as projector stand-in.** S3/S4 PASS on it (2026-10-30) and the S6 500-cycle soak PASSed physically on 2026-11-09, so the MVP is verified end-to-end. A real projector, USB-C dock, KVM, AVR and a second-GPU PC are still pending — the per-release runs are tracked row by row in [hardware-matrix.md](hardware-matrix.md) (H1–H18); until the real projector arrives, the DELL stands in and those rows stay open. |
+| O6 | Signing and distribution | **Sign releases, not snapshots.** CI signs `Beam.exe`, `Beam.Cli.exe` and the installer with Azure Trusted Signing via `installer/sign.ps1` (secrets in GitHub Actions only) and gates on `signtool verify` — see [ADR-0016](../04-adr/ADR-0016-signing-and-distribution.md). Shipping unsigned with a SmartScreen warning was rejected. winget manifest is a follow-up after the first signed beta (reputation accumulates there). |
+
 ## Still open
 
-### O1 — Hardware for the spikes (blocking S3/S4/S6)
-
-Which of these do you have access to?
-
-- a projector — model and native resolution?
-- an external monitor (16:9?)
-- a USB-C dock
-- an AVR / HDMI switcher
-- a second PC with a different GPU (Intel vs NVIDIA)
-
-Without at least one 16:9 external display, S3 and S4 cannot be validated and the MVP
-cannot be verified end-to-end.
+_(O1 and O6 moved to answered above on 2026-11-14.)_
 
 ### O2 — Repository layout
 
@@ -59,14 +55,10 @@ interface is removed entirely.
 
 ### O5 — Presentation extras (Phase 3)
 
-Which do you actually want?
-
-- keep the display awake while projecting (recommended)
-- suppress notifications (Do Not Disturb)
-- switch audio to HDMI
-- none of the above
+**Answered 2026-11-14 (B3):** all three shipped, default on, individually switchable —
+keep awake, Do Not Disturb, audio to HDMI (ADR-0017). Failures never fail the session.
 
 ### O6 — Signing and distribution
 
-Unsigned dev builds are fine for Phase 0/1. For beta: code signing certificate, or
-ship unsigned with a SmartScreen warning? (winget is possible either way.)
+**Answered 2026-11-14:** see ADR-0016 and the answered table above — Azure Trusted Signing
+in CI for releases; snapshots unsigned; winget after the first signed beta.

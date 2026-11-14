@@ -1,5 +1,6 @@
 using System.IO;
 using System.Text.Json;
+using Beam.Core.Diagnostics;
 using Beam.Core.NightLight;
 
 namespace Beam.App.Journal;
@@ -39,13 +40,21 @@ public sealed class JournalStore : IJournalStore
     };
 
     /// <summary>
+    /// Maximum journal file size accepted by <see cref="Read"/>. The journal is a few
+    /// hundred bytes; anything larger is corruption or an attack, not data — refuse it
+    /// instead of loading it into memory.
+    /// </summary>
+    public const long MaxReadBytes = 256 * 1024;
+
+    /// <summary>
     /// Persists that a fix sequence has started, with the captured Night Light state and
     /// the original DPI scale per source (roadmap 1.9: DPI restore needs the pre-apply value).
     /// </summary>
     public void BeginApply(
         string reason,
         IReadOnlyList<NightLightSnapshot>? nightLight,
-        IReadOnlyList<JournalDpiEntry>? dpi = null)
+        IReadOnlyList<JournalDpiEntry>? dpi = null,
+        JournalExtras? extras = null)
     {
         var journal = new JournalRecord(
             IsActive: true,
@@ -53,11 +62,16 @@ public sealed class JournalStore : IJournalStore
             AppliedAt: DateTimeOffset.Now.ToString("o"),
             NightLight: nightLight?.Select(n => new JournalEntry(
                 n.KeyPath, n.ValueName, Convert.ToBase64String(n.RawBytes))).ToList(),
-            Dpi: dpi is { Count: > 0 } ? dpi.ToList() : null);
+            Dpi: dpi is { Count: > 0 } ? dpi.ToList() : null,
+            Version: JournalRecord.CurrentVersion,
+            Extras: extras);
         Write(journal);
     }
 
-    /// <summary>Reads the journal, or null when none exists.</summary>
+    /// <summary>
+    /// Reads the journal, or null when none exists, it cannot be parsed, it is larger
+    /// than <see cref="MaxReadBytes"/>, or it was written by a newer Beam version.
+    /// </summary>
     public JournalRecord? Read()
     {
         try
@@ -66,7 +80,25 @@ public sealed class JournalStore : IJournalStore
             {
                 return null;
             }
-            return JsonSerializer.Deserialize<JournalRecord>(File.ReadAllText(_path), Options);
+
+            long length = new FileInfo(_path).Length;
+            if (length > MaxReadBytes)
+            {
+                Log.Warn("Journal file too large — ignoring it", "Journal",
+                    ("bytes", length), ("maxBytes", MaxReadBytes));
+                return null;
+            }
+
+            JournalRecord? record = JsonSerializer.Deserialize<JournalRecord>(File.ReadAllText(_path), Options);
+            if (record is not null && record.Version > JournalRecord.CurrentVersion)
+            {
+                // A newer Beam wrote this; its schema may differ — do not guess.
+                Log.Warn("Journal written by a newer Beam version — ignoring it", "Journal",
+                    ("version", record.Version), ("currentVersion", JournalRecord.CurrentVersion));
+                return null;
+            }
+
+            return record;
         }
         catch
         {
@@ -101,11 +133,10 @@ public sealed class JournalStore : IJournalStore
         {
             string json = JsonSerializer.Serialize(journal, Options);
             File.WriteAllText(_tmpPath, json);
-            if (File.Exists(_path))
-            {
-                File.Delete(_path);
-            }
-            File.Move(_tmpPath, _path);
+            // Atomic on NTFS: a single rename replaces the old journal, so a crash can
+            // never leave a missing or half-written journal (the old Delete+Move had a
+            // window where the journal was gone entirely and crash recovery was lost).
+            File.Move(_tmpPath, _path, overwrite: true);
         }
         catch
         {

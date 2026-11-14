@@ -119,6 +119,9 @@ public static class DisplayNative
     public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_DEVICE_NAME requestPacket);
 
     [DllImport("user32.dll")]
+    public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_TARGET_PREFERRED_MODE requestPacket);
+
+    [DllImport("user32.dll")]
     public static extern int DisplayConfigGetDeviceInfo(ref DISPLAYCONFIG_GET_DPI_SCALE requestPacket);
 
     [DllImport("user32.dll")]
@@ -350,6 +353,22 @@ public static class DisplayNative
 
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)]
         public string monitorDevicePath;
+    }
+
+    /// <summary>
+    /// <c>DISPLAYCONFIG_TARGET_PREFERRED_MODE</c> (device-info type 3): the EDID-native
+    /// ("preferred") mode of the monitor attached to a target.
+    /// header(20) + width(4) + height(4) + targetMode(48) = 80 bytes; the embedded
+    /// <see cref="DISPLAYCONFIG_VIDEO_SIGNAL_INFO"/> starts with a <c>ulong</c>, so
+    /// <c>targetMode</c> sits at offset 32, matching the C layout.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct DISPLAYCONFIG_TARGET_PREFERRED_MODE
+    {
+        public DISPLAYCONFIG_DEVICE_INFO_HEADER header;
+        public uint width;
+        public uint height;
+        public DISPLAYCONFIG_TARGET_MODE targetMode;
     }
 
     /// <summary>Undocumented <c>DISPLAYCONFIG_GET_DPI_SCALE</c> (type <c>-3</c>), 32 bytes.</summary>

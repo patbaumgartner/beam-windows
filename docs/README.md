@@ -66,11 +66,13 @@ beam/
   03-arc42/
     01 .. 12                    arc42 chapters
   04-adr/
-    ADR-0001 .. ADR-0015        architecture decisions (status varies: see each ADR)
+    ADR-0001 .. ADR-0019        architecture decisions (status varies: see each ADR)
   05-delivery/
     roadmap.md                  phases, exit criteria, definition of done
+    presenter-edition-plan.md   0.2.0 plan (Phases A–D) and its evidence
     upstream-plan.md            issue text, spec outline, PR sequencing
     test-strategy.md            unit, simulation, hardware matrix
+    hardware-matrix.md          per-release hardware runs (H1–H18) and results
     decisions.md                the product owner's confirmed decisions
     open-questions.md           what is still open
   06-development/

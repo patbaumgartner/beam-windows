@@ -243,7 +243,8 @@ public sealed class DisplayInventory : ITopologySource
                 OutputTechnologyName(target.outputTechnology),
                 string.Empty,
                 target.outputTechnology == 18,
-                target.targetAvailable != 0);
+                target.targetAvailable != 0,
+                GetPreferredMode(target));
         }
 
         return new DisplayTarget(
@@ -253,7 +254,43 @@ public sealed class DisplayInventory : ITopologySource
             OutputTechnologyName(target.outputTechnology),
             request.monitorDevicePath,
              target.outputTechnology is 18 or OutputTechnologyInternalVirtual,
-            target.targetAvailable != 0);
+            target.targetAvailable != 0,
+            GetPreferredMode(target));
+    }
+
+    /// <summary>
+    /// B2/V8: reads the target's EDID-native ("preferred") mode via
+    /// <c>DISPLAYCONFIG_DEVICE_INFO_GET_TARGET_PREFERRED_MODE</c> (type 3).
+    /// Returns null when the call fails or reports no usable size — the mode
+    /// ranking simply falls back to pixels-first there.
+    /// </summary>
+    private static DisplayMode? GetPreferredMode(DISPLAYCONFIG_PATH_TARGET_INFO target)
+    {
+        var request = new DISPLAYCONFIG_TARGET_PREFERRED_MODE
+        {
+            header = new DISPLAYCONFIG_DEVICE_INFO_HEADER
+            {
+                type = DeviceInfoGetTargetPreferredMode,
+                size = (uint)System.Runtime.InteropServices.Marshal.SizeOf<DISPLAYCONFIG_TARGET_PREFERRED_MODE>(),
+                adapterId = target.adapterId,
+                id = target.id,
+            },
+        };
+
+        if (DisplayConfigGetDeviceInfo(ref request) != ErrorSuccess)
+        {
+            return null;
+        }
+
+        DISPLAYCONFIG_VIDEO_SIGNAL_INFO signal = request.targetMode.targetVideoSignalInfo;
+        uint width = request.width != 0 ? request.width : signal.activeSize.cx;
+        uint height = request.height != 0 ? request.height : signal.activeSize.cy;
+        if (width == 0 || height == 0)
+        {
+            return null;
+        }
+
+        return new DisplayMode(width, height, signal.vSyncFreq.ToDouble());
     }
 
     private static (int? Percent, int? MinRel, int? CurRel, int? MaxRel) ReadDpi(LUID adapterId, uint sourceId)

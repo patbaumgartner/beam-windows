@@ -5,12 +5,15 @@ using Beam.Core.Diagnostics;
 using Beam.Core.Display;
 using Beam.Core.NightLight;
 using Beam.Core.Ports;
+using Beam.Core.Settings;
+using Beam.Core.Status;
 
 namespace Beam.App.Presentation;
 
 /// <summary>
 /// The presentation engine. Listens for display changes, evaluates the trigger condition,
-/// and sequences Night Light → display mode → DPI (and the reverse on restore).
+/// and sequences Night Light → display mode → DPI → extras (keep-awake / DND / audio),
+/// and the reverse on restore.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -52,20 +55,245 @@ public sealed class PresentationManager : IDisposable
     private int _consecutiveFailures;
     private bool _disposed;
 
+    // B5 "Ignore this display": target identities excluded from the trigger. Swapped
+    // atomically (immutable list), so reads from the UI thread need no lock.
+    private volatile IReadOnlyCollection<string> _ignoredDisplays = Array.Empty<string>();
+    private DisplayTopology _lastTopology = DisplayTopology.Empty;
+    private volatile IReadOnlyList<DisplayPath> _currentExternalPaths = Array.Empty<DisplayPath>();
+
+    // B3 presentation extras. The ports are optional: when absent (e.g. a headless CLI
+    // composition root) the corresponding extra is skipped entirely.
+    private readonly IKeepAwake? _keepAwakePort;
+    private readonly IDndController? _dnd;
+    private readonly IAudioController? _audio;
+    private JournalExtras? _extras;
+
+    // B6 live status: published on every session state change so `beam status` can
+    // report what the tray is doing. Optional; absent in the CLI composition root.
+    private readonly IStatusWriter? _statusWriter;
+    private string? _appliedSourceMode;
+    private int? _appliedDpiPercent;
+    private bool? _nightLightDisabled;
+
+    // B4 persisted settings: loaded once in the ctor, saved on every change.
+    private readonly ISettingsStore? _settingsStore;
+    private BeamSettings _settings = BeamSettings.Defaults;
+    private bool _isEnabled = true;
+    private bool _useMode = true;
+    private bool _useDpi = true;
+    private bool _useNightLight = true;
+    private bool _keepAwake = true;
+    private bool _doNotDisturb = true;
+    private bool _audioToHdmi = true;
+    private string _hotkey = BeamSettings.Defaults.Hotkey;
+
+    // C1 settings window fields: pause preset, restore-on-disconnect, DPI target,
+    // prefer-native ranking, known devices, first-run toast flag.
+    private int? _timedPauseMinutes;
+    private bool _restoreOnDisconnect = true;
+    private int _dpiTargetPercent; // 0 = automatic
+    private bool _preferNativeMode = true;
+    private volatile IReadOnlyList<DeviceProfile> _knownDevices = Array.Empty<DeviceProfile>();
+    private bool _firstRunToastShown;
+    private Timer? _pauseTimer;
+    private DateTimeOffset _pauseUntilUtc = DateTimeOffset.MinValue;
+
     /// <summary>Raised when safe mode is entered or cleared (UC-12 AC5: must be visible).</summary>
     public event Action<bool>? SafeModeChanged;
 
-    /// <summary>UC-15 minimal settings: master switch. While false, no automatic fixes run.</summary>
-    public bool IsEnabled { get; private set; } = true;
+    /// <summary>UC-15 minimal settings: master switch. While false, no automatic fixes run. Persisted (B4).</summary>
+    public bool IsEnabled
+    {
+        get => _isEnabled;
+        private set
+        {
+            _isEnabled = value;
+            PersistSettings();
+        }
+    }
 
-    /// <summary>Policy: control the display mode in the fix sequence (roadmap 1.13).</summary>
-    public bool UseMode { get; set; } = true;
+    /// <summary>Policy: control the display mode in the fix sequence (roadmap 1.13). Persisted (B4).</summary>
+    public bool UseMode
+    {
+        get => _useMode;
+        set
+        {
+            _useMode = value;
+            PersistSettings();
+        }
+    }
 
-    /// <summary>Policy: control the DPI scale in the fix sequence (roadmap 1.13).</summary>
-    public bool UseDpi { get; set; } = true;
+    /// <summary>Policy: control the DPI scale in the fix sequence (roadmap 1.13). Persisted (B4).</summary>
+    public bool UseDpi
+    {
+        get => _useDpi;
+        set
+        {
+            _useDpi = value;
+            PersistSettings();
+        }
+    }
 
-    /// <summary>Policy: turn Night Light off in the fix sequence (roadmap 1.13).</summary>
-    public bool UseNightLight { get; set; } = true;
+    /// <summary>Policy: turn Night Light off in the fix sequence (roadmap 1.13). Persisted (B4).</summary>
+    public bool UseNightLight
+    {
+        get => _useNightLight;
+        set
+        {
+            _useNightLight = value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>B3 extra: hold the display awake while presenting (default on). Persisted (B4).</summary>
+    public bool KeepAwake
+    {
+        get => _keepAwake;
+        set
+        {
+            _keepAwake = value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>B3 extra: silence toast notifications while presenting (default on). Persisted (B4).</summary>
+    public bool DoNotDisturb
+    {
+        get => _doNotDisturb;
+        set
+        {
+            _doNotDisturb = value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>B3 extra: switch default audio to the projector/HDMI output while presenting (default on). Persisted (B4).</summary>
+    public bool AudioToHdmi
+    {
+        get => _audioToHdmi;
+        set
+        {
+            _audioToHdmi = value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>B7: global hotkey combo string, e.g. "Win+Alt+P". Persisted (B4).</summary>
+    public string Hotkey
+    {
+        get => _hotkey;
+        set
+        {
+            _hotkey = string.IsNullOrWhiteSpace(value) ? BeamSettings.Defaults.Hotkey : value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>C1/C2: preferred pause duration in minutes (15/60), null = indefinite. Persisted.</summary>
+    public int? TimedPauseMinutes
+    {
+        get => _timedPauseMinutes;
+        set
+        {
+            _timedPauseMinutes = value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>C1: restore the user's display settings when the projector disconnects (default on). Persisted.</summary>
+    public bool RestoreOnDisconnect
+    {
+        get => _restoreOnDisconnect;
+        set
+        {
+            _restoreOnDisconnect = value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>C1: fixed DPI target percent for the fix sequence; 0 = automatic. Persisted.</summary>
+    public int DpiTargetPercent
+    {
+        get => _dpiTargetPercent;
+        set
+        {
+            _dpiTargetPercent = value < 0 ? 0 : value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>C1/B2: rank the EDID-native 16:9 mode first when choosing the projector mode. Persisted.</summary>
+    public bool PreferNativeMode
+    {
+        get => _preferNativeMode;
+        set
+        {
+            _preferNativeMode = value;
+            PersistSettings();
+        }
+    }
+
+    /// <summary>C1: displays seen before (Devices table in the settings window). Persisted.</summary>
+    public IReadOnlyList<DeviceProfile> KnownDevices => _knownDevices;
+
+    /// <summary>C3: true until the first-run toast has been shown once; then false forever.</summary>
+    public bool ShouldShowFirstRunToast => !_firstRunToastShown;
+
+    /// <summary>C3: marks the first-run toast as shown (persisted).</summary>
+    public void MarkFirstRunToastShown()
+    {
+        _firstRunToastShown = true;
+        PersistSettings();
+    }
+
+    /// <summary>B4: a snapshot of all current settings (exactly what would be persisted now).</summary>
+    public BeamSettings CurrentSettings => _settings with
+    {
+        IsEnabled = _isEnabled,
+        UseMode = _useMode,
+        UseDpi = _useDpi,
+        UseNightLight = _useNightLight,
+        KeepAwake = _keepAwake,
+        DoNotDisturb = _doNotDisturb,
+        AudioToHdmi = _audioToHdmi,
+        IgnoredDisplays = _ignoredDisplays.ToList(),
+        Hotkey = _hotkey,
+        TimedPauseMinutes = _timedPauseMinutes,
+        RestoreOnDisconnect = _restoreOnDisconnect,
+        DpiTargetPercent = _dpiTargetPercent,
+        PreferNativeMode = _preferNativeMode,
+        KnownDevices = _knownDevices.ToList(),
+        FirstRunToastShown = _firstRunToastShown,
+    };
+
+    /// <summary>B5: raised when the ignore-list changes (the tray rebuilds its submenu from it).</summary>
+    public event Action<IReadOnlyCollection<string>>? IgnoredDisplaysChanged;
+
+    /// <summary>C1: raised when the known-devices list changes (the settings Devices table rebinds).</summary>
+    public event Action<IReadOnlyList<DeviceProfile>>? KnownDevicesChanged;
+
+    /// <summary>B5: target identities the user excluded from the trigger ("Ignore this display").</summary>
+    public IReadOnlyCollection<string> IgnoredDisplays => _ignoredDisplays;
+
+    /// <summary>
+    /// B5: external active paths from the most recent topology query, minus ignored displays.
+    /// Cache only — safe to read from the UI thread (A6: never QueryDisplayConfig there).
+    /// </summary>
+    public IReadOnlyList<DisplayPath> CurrentExternalPaths => _currentExternalPaths;
+
+    /// <summary>
+    /// B1/B6: a snapshot of the live session status (same shape as the status.json file),
+    /// safe to read from the UI thread — used by the tray for the rich tooltip. The applied
+    /// fields are null while idle.
+    /// </summary>
+    public StatusFileRecord CurrentStatus => new(
+        _session.State.ToString(),
+        null,
+        _clock().ToString("o"),
+        Environment.ProcessId,
+        _appliedSourceMode,
+        _appliedDpiPercent,
+        _nightLightDisabled);
 
     public PresentationManager(
         IDisplayChangeSource changes,
@@ -76,7 +304,12 @@ public sealed class PresentationManager : IDisposable
         IJournalStore journal,
         SessionManager session,
         TimeSpan? selfChangeWindow = null,
-        Func<DateTimeOffset>? clock = null)
+        Func<DateTimeOffset>? clock = null,
+        ISettingsStore? settings = null,
+        IKeepAwake? keepAwake = null,
+        IDndController? dnd = null,
+        IAudioController? audio = null,
+        IStatusWriter? statusWriter = null)
     {
         _changes = changes ?? throw new ArgumentNullException(nameof(changes));
         _topology = topology ?? throw new ArgumentNullException(nameof(topology));
@@ -87,8 +320,86 @@ public sealed class PresentationManager : IDisposable
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _selfChangeWindow = selfChangeWindow ?? DefaultSelfChangeWindow;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _settingsStore = settings;
+        _keepAwakePort = keepAwake;
+        _dnd = dnd;
+        _audio = audio;
+        _statusWriter = statusWriter;
+
+        if (statusWriter is not null)
+        {
+            _session.StateChanged += OnSessionStateChanged;
+            // Publish the initial state so `beam status` sees the tray even before the
+            // first transition.
+            WriteStatus(_session.State, "startup", _clock());
+        }
+
+        if (settings is not null)
+        {
+            // B4: load persisted settings. Backing fields are assigned directly so the
+            // load itself never triggers a save or the IgnoredDisplaysChanged event.
+            BeamSettings loaded = settings.Load();
+            _settings = loaded;
+            _isEnabled = loaded.IsEnabled;
+            _useMode = loaded.UseMode;
+            _useDpi = loaded.UseDpi;
+            _useNightLight = loaded.UseNightLight;
+            _keepAwake = loaded.KeepAwake;
+            _doNotDisturb = loaded.DoNotDisturb;
+            _audioToHdmi = loaded.AudioToHdmi;
+            _hotkey = string.IsNullOrWhiteSpace(loaded.Hotkey) ? BeamSettings.Defaults.Hotkey : loaded.Hotkey;
+            _ignoredDisplays = (loaded.IgnoredDisplays ?? Array.Empty<string>()).ToList();
+            _timedPauseMinutes = loaded.TimedPauseMinutes;
+            _restoreOnDisconnect = loaded.RestoreOnDisconnect;
+            _dpiTargetPercent = loaded.DpiTargetPercent < 0 ? 0 : loaded.DpiTargetPercent;
+            _preferNativeMode = loaded.PreferNativeMode;
+            _knownDevices = loaded.KnownDevices ?? Array.Empty<DeviceProfile>();
+            _firstRunToastShown = loaded.FirstRunToastShown;
+            Log.Info("Settings loaded from disk", "Settings",
+                ("version", loaded.Version.ToString()),
+                ("isEnabled", _isEnabled.ToString()),
+                ("useMode", _useMode.ToString()),
+                ("useDpi", _useDpi.ToString()),
+                ("useNightLight", _useNightLight.ToString()),
+                ("keepAwake", _keepAwake.ToString()),
+                ("doNotDisturb", _doNotDisturb.ToString()),
+                ("audioToHdmi", _audioToHdmi.ToString()),
+                ("ignoredCount", _ignoredDisplays.Count.ToString()),
+                ("hotkey", _hotkey));
+        }
 
         _changes.Changed += OnDisplayChanged;
+    }
+
+    /// <summary>
+    /// B6: writes the live status record on every session transition. Never throws —
+    /// a status write failure must not affect the session.
+    /// </summary>
+    private void OnSessionStateChanged(SessionEvent evt) =>
+        WriteStatus(evt.To, string.IsNullOrEmpty(evt.Reason) ? null : evt.Reason, evt.Timestamp);
+
+    private void WriteStatus(SessionState state, string? reason, DateTimeOffset timestamp)
+    {
+        if (_statusWriter is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _statusWriter.Write(new StatusFileRecord(
+                state.ToString(),
+                reason,
+                timestamp.ToString("o"),
+                Environment.ProcessId,
+                _appliedSourceMode,
+                _appliedDpiPercent,
+                _nightLightDisabled));
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Status write failed — continuing", "Status", ("error", ex.Message));
+        }
     }
 
     /// <summary>UC-12 rule 11: true after <see cref="MaxConsecutiveFailures"/> consecutive failed fixes.</summary>
@@ -106,6 +417,10 @@ public sealed class PresentationManager : IDisposable
     /// </summary>
     public static bool IsTriggerConditionMet(DisplayTopology topology) =>
         TriggerCondition.IsMet(topology);
+
+    /// <summary>B5: same, honouring the per-display ignore list.</summary>
+    public static bool IsTriggerConditionMet(DisplayTopology topology, IReadOnlyCollection<string>? ignoredIdentities) =>
+        TriggerCondition.IsMet(topology, ignoredIdentities);
 
     // ── Public operations ───────────────────────────────────────────────────────
 
@@ -139,6 +454,192 @@ public sealed class PresentationManager : IDisposable
         Log.Info("Night Light manual toggle", "Manual", ("active", on.ToString()));
         _nightLight.SetActive(on);
     }
+
+    /// <summary>B5: exclude a display (by <see cref="DisplayTarget.Identity"/>) from the trigger.</summary>
+    public void IgnoreDisplay(string identity)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(identity);
+        IReadOnlyCollection<string> current = _ignoredDisplays;
+        if (current.Contains(identity))
+        {
+            return;
+        }
+
+        IReadOnlyCollection<string> next = current.Concat(new[] { identity }).ToList();
+        SetIgnoredDisplaysCore(next);
+        Log.Info("Display ignored", "Settings", ("identity", identity), ("ignoredCount", next.Count.ToString()));
+    }
+
+    /// <summary>B5: re-include a previously ignored display.</summary>
+    public void UnignoreDisplay(string identity)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(identity);
+        IReadOnlyCollection<string> current = _ignoredDisplays;
+        if (!current.Contains(identity))
+        {
+            return;
+        }
+
+        IReadOnlyCollection<string> next = current
+            .Where(i => !string.Equals(i, identity, StringComparison.Ordinal))
+            .ToList();
+        SetIgnoredDisplaysCore(next);
+        Log.Info("Display un-ignored", "Settings", ("identity", identity), ("ignoredCount", next.Count.ToString()));
+    }
+
+    /// <summary>B5: replace the whole ignore list (settings load). Null clears it.</summary>
+    public void SetIgnoredDisplays(IEnumerable<string>? identities)
+    {
+        IReadOnlyCollection<string> next = (identities ?? Enumerable.Empty<string>())
+            .Where(s => !string.IsNullOrEmpty(s))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        SetIgnoredDisplaysCore(next);
+        Log.Info("Ignore list loaded", "Settings", ("ignoredCount", next.Count.ToString()));
+    }
+
+    private void SetIgnoredDisplaysCore(IReadOnlyCollection<string> next)
+    {
+        _ignoredDisplays = next;
+        // Re-filter the cached topology — no platform query, so this is safe on the UI thread (A6).
+        _currentExternalPaths = _lastTopology.ExternalPathsIgnoring(next);
+        IgnoredDisplaysChanged?.Invoke(next);
+        PersistSettings(); // B4: the ignore list lives in settings.json
+    }
+
+    // ── C1: per-device profiles (Devices table in the settings window) ──────────
+
+    /// <summary>
+    /// C1: the identities that must not trigger the automatic fix — the explicit ignore
+    /// list (B5) plus any known device whose auto-apply flag is off.
+    /// </summary>
+    private IReadOnlyCollection<string> EffectiveIgnoredIdentities()
+    {
+        IReadOnlyCollection<string> ignored = _ignoredDisplays;
+        var noAuto = _knownDevices.Where(d => !d.AutoApply).Select(d => d.Identity).ToList();
+        if (noAuto.Count == 0)
+        {
+            return ignored;
+        }
+
+        return ignored.Concat(noAuto).Distinct(StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>
+    /// C1: records every external display of a topology as known (idempotent) so the
+    /// settings window's Devices table can list name + identity. Persists only when the
+    /// set actually grows.
+    /// </summary>
+    private void RecordKnownDevices(DisplayTopology topology)
+    {
+        List<DeviceProfile> devices = _knownDevices.ToList();
+        bool changed = false;
+        foreach (DisplayPath p in topology.ActivePaths)
+        {
+            if (p.Target.IsInternal)
+            {
+                continue;
+            }
+
+            string identity = p.Target.Identity;
+            if (devices.Any(d => string.Equals(d.Identity, identity, StringComparison.Ordinal)))
+            {
+                continue;
+            }
+
+            devices.Add(new DeviceProfile(identity, p.Target.FriendlyName, AutoApply: true, _clock().ToString("o")));
+            changed = true;
+            Log.Info("New external display recorded in known devices", "Settings",
+                ("identity", identity), ("name", p.Target.FriendlyName));
+        }
+
+        if (changed)
+        {
+            _knownDevices = devices;
+            KnownDevicesChanged?.Invoke(devices);
+            PersistSettings();
+        }
+    }
+
+    /// <summary>C1: sets the per-device auto-apply flag (false = this display never triggers the fix).</summary>
+    public void SetDeviceAutoApply(string identity, bool autoApply)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(identity);
+        List<DeviceProfile> devices = _knownDevices.ToList();
+        int i = devices.FindIndex(d => string.Equals(d.Identity, identity, StringComparison.Ordinal));
+        if (i < 0)
+        {
+            devices.Add(new DeviceProfile(identity, identity, autoApply, _clock().ToString("o")));
+        }
+        else
+        {
+            devices[i] = devices[i] with { AutoApply = autoApply };
+        }
+
+        _knownDevices = devices;
+        KnownDevicesChanged?.Invoke(devices);
+        PersistSettings();
+        Log.Info("Device auto-apply changed", "Settings",
+            ("identity", identity), ("autoApply", autoApply.ToString()));
+    }
+
+    /// <summary>C1: removes a device from the known list and clears any ignore for it.</summary>
+    public void ForgetDevice(string identity)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(identity);
+        List<DeviceProfile> devices = _knownDevices
+            .Where(d => !string.Equals(d.Identity, identity, StringComparison.Ordinal))
+            .ToList();
+        if (devices.Count != _knownDevices.Count)
+        {
+            _knownDevices = devices;
+            KnownDevicesChanged?.Invoke(devices);
+        }
+
+        UnignoreDisplay(identity); // forget also clears the ignore flag
+        PersistSettings();
+        Log.Info("Device forgotten", "Settings", ("identity", identity));
+    }
+
+    /// <summary>
+    /// C1/C2: pauses the session. Auto-resumes after <paramref name="duration"/>;
+    /// <paramref name="duration"/> ≤ 0 means indefinite (resume manually).
+    /// </summary>
+    public void PauseFor(TimeSpan duration)
+    {
+        _session.Pause();
+        Log.Info("Pause requested", "Manual",
+            ("durationMs", duration.TotalMilliseconds.ToString()),
+            ("indefinite", (duration <= TimeSpan.Zero).ToString()));
+        if (duration <= TimeSpan.Zero)
+        {
+            return;
+        }
+
+        _pauseUntilUtc = _clock() + duration;
+        _pauseTimer?.Dispose();
+        _pauseTimer = new Timer(_ => OnPauseTimerElapsed(), null, duration, Timeout.InfiniteTimeSpan);
+    }
+
+    private void OnPauseTimerElapsed()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        if (_session.State == SessionState.Paused && _clock() >= _pauseUntilUtc)
+        {
+            Log.Info("Timed pause elapsed — resuming", "Manual", ("pausedUntil", _pauseUntilUtc.ToString("o")));
+            _session.Resume();
+        }
+    }
+
+    /// <summary>
+    /// B5/A6: re-queries the topology and refreshes <see cref="CurrentExternalPaths"/>.
+    /// Calls the platform display query — must run off the UI thread.
+    /// </summary>
+    public void RefreshExternalPaths() => QueryTopology();
 
     // ── Display-change handling ─────────────────────────────────────────────────
 
@@ -181,11 +682,22 @@ public sealed class PresentationManager : IDisposable
 
         if (state == SessionState.Active && displayDisconnected)
         {
-            Log.Info("External display disconnected while presenting — requesting restore.", "Monitor",
-                ("previousDisplays", prevCount),
-                ("currentDisplays", currCount));
-            await RunExclusiveAsync(RestoreSequenceAsync).ConfigureAwait(false);
-            return;
+            if (!_restoreOnDisconnect)
+            {
+                // C1: user turned "restore on disconnect" off — keep presenting on the
+                // remaining display(s) and just re-evaluate below.
+                Log.Info("External display disconnected while presenting — restore on disconnect is OFF, continuing.", "Monitor",
+                    ("previousDisplays", prevCount),
+                    ("currentDisplays", currCount));
+            }
+            else
+            {
+                Log.Info("External display disconnected while presenting — requesting restore.", "Monitor",
+                    ("previousDisplays", prevCount),
+                    ("currentDisplays", currCount));
+                await RunExclusiveAsync(RestoreSequenceAsync).ConfigureAwait(false);
+                return;
+            }
         }
 
         // UC-12 rule 8: a change we caused ourselves (mode/DPI write re-enumerates paths)
@@ -198,8 +710,10 @@ public sealed class PresentationManager : IDisposable
             return;
         }
 
-        DisplayTopology topology = _topology.Query();
-        bool triggerMet = TriggerCondition.IsMet(topology);
+        DisplayTopology topology = QueryTopology();
+        // C1: devices with auto-apply off act like ignored displays for the trigger.
+        IReadOnlyCollection<string> effectiveIgnored = EffectiveIgnoredIdentities();
+        bool triggerMet = TriggerCondition.IsMet(topology, effectiveIgnored);
 
         Log.Info("Trigger evaluation", "Monitor",
             ("triggerMet", triggerMet.ToString()),
@@ -312,8 +826,10 @@ public sealed class PresentationManager : IDisposable
             return Task.CompletedTask;
         }
 
-        DisplayTopology topology = _topology.Query();
-        bool triggerMet = TriggerCondition.IsMet(topology);
+        DisplayTopology topology = QueryTopology();
+        // C1: devices with auto-apply off act like ignored displays for the trigger.
+        IReadOnlyCollection<string> effectiveIgnored = EffectiveIgnoredIdentities();
+        bool triggerMet = TriggerCondition.IsMet(topology, effectiveIgnored);
 
         Log.Info("Startup state check", "Startup",
             ("triggerMet", triggerMet.ToString()),
@@ -343,6 +859,10 @@ public sealed class PresentationManager : IDisposable
         // put both back exactly (roadmap 1.9: DPI restore from the crash journal).
         _nightLightSnapshot = JournalStore.RehydrateNightLight(journal);
         _dpiSnapshot = JournalStore.RehydrateDpi(journal);
+
+        // B3: rehydrate the extras previous-state so crash recovery also undoes
+        // keep-awake / DND / audio exactly as they were before the interrupted fix.
+        _extras = journal.Extras;
         await RestoreSequenceAsync().ConfigureAwait(false);
     }
 
@@ -379,14 +899,20 @@ public sealed class PresentationManager : IDisposable
             // (and crash recovery from the journal) can put it back exactly.
             _dpiSnapshot = CaptureDpi();
 
+            // B3: capture the previous extras state (toasts, default audio endpoint) BEFORE
+            // any mutation, so the journal — and therefore crash recovery — can undo each
+            // extra exactly.
+            _extras = CaptureExtras();
+
             // Persist intent before any mutation: if Beam is killed later in the sequence,
             // the next launch sees an active journal and can recover.
-            _journal.BeginApply("fix-sequence-started", _nightLightSnapshot, _dpiSnapshot);
+            _journal.BeginApply("fix-sequence-started", _nightLightSnapshot, _dpiSnapshot, _extras);
 
             if (UseNightLight)
             {
                 NightLightWriteResult nlResult = _nightLight.SetActive(active: false);
                 MarkOwnMutation();
+                _nightLightDisabled = nlResult.Success; // B6: reported in the live status
                 Log.Info("Night Light set-off result", "Fix",
                     ("step", "nightLight"),
                     ("success", nlResult.Success.ToString()),
@@ -399,18 +925,18 @@ public sealed class PresentationManager : IDisposable
             if (UseMode)
             {
                 Log.Info("Fix Step 2: Display mode — clone + 16:9", "Fix", ("step", "displayMode"));
-                LogTopology("Topology before mode change", "Fix", _topology.Query());
+                LogTopology("Topology before mode change", "Fix", QueryTopology());
 
-                modeError = _mode.ApplyCloneWith16x9();
+                modeError = _mode.ApplyCloneWith16x9(_preferNativeMode); // C1: prefer-native policy
                 MarkOwnMutation();
 
                 // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
-                if (modeError is null && TriggerCondition.IsMet(_topology.Query()))
+                if (modeError is null && TriggerCondition.IsMet(QueryTopology(), _ignoredDisplays))
                 {
                     modeError = "verify-after-mode failed: mirror aspect mismatch still present after apply";
                 }
 
-                LogTopology("Topology after mode change", "Fix", _topology.Query(), modeError);
+                LogTopology("Topology after mode change", "Fix", QueryTopology(), modeError);
 
                 if (modeError is not null)
                 {
@@ -425,6 +951,12 @@ public sealed class PresentationManager : IDisposable
                 }
 
                 Log.Info("Display mode applied and verified", "Fix", ("step", "displayMode"));
+
+                // B6: remember what the fix applied so the live status can report it.
+                DisplayPath? appliedShared = QueryTopology().ActivePaths.FirstOrDefault();
+                _appliedSourceMode = appliedShared?.SourceMode is { } sm
+                    ? $"{sm.Width}x{sm.Height}@{sm.RefreshHz:0}"
+                    : null;
             }
             else
             {
@@ -441,6 +973,10 @@ public sealed class PresentationManager : IDisposable
             {
                 Log.Info("Fix Step 3 skipped: policy says do not control DPI.", "Fix", ("step", "dpi"));
             }
+
+            // Step 4: presentation extras (keep-awake, DND, audio-to-HDMI). Best-effort:
+            // a failure here must never fail the session.
+            ApplyExtras();
 
             _session.MarkActive();
             NoteSuccess("fix sequence complete");
@@ -465,7 +1001,7 @@ public sealed class PresentationManager : IDisposable
         var sw = Stopwatch.StartNew();
         try
         {
-            DisplayTopology topology = _topology.Query();
+            DisplayTopology topology = QueryTopology();
             DisplayPath? sharedSource = topology.ActivePaths.FirstOrDefault();
             if (sharedSource is null)
             {
@@ -493,7 +1029,11 @@ public sealed class PresentationManager : IDisposable
             }
 
             uint sourceWidth = sharedSource.SourceMode?.Width ?? 1920;
-            int targetPercent = ScalePlanner.ChooseScale(sourceWidth, scale.Value);
+            // C1: a fixed DPI target from settings wins over the automatic recommendation
+            // (clamped to the adapter's supported range); 0 = automatic.
+            int targetPercent = _dpiTargetPercent > 0
+                ? Math.Clamp(_dpiTargetPercent, scale.Value.Minimum, scale.Value.Maximum)
+                : ScalePlanner.ChooseScale(sourceWidth, scale.Value);
 
             Log.Info("DPI scale analysis", "Fix",
                 ("step", "dpi"),
@@ -507,6 +1047,7 @@ public sealed class PresentationManager : IDisposable
 
             if (targetPercent == scale.Value.Current)
             {
+                _appliedDpiPercent = scale.Value.Current; // B6: reported in the live status
                 Log.Info("DPI: already at optimal; no change needed.", "Fix",
                     ("step", "dpi"),
                     ("noChangeNeeded", true.ToString()),
@@ -515,6 +1056,10 @@ public sealed class PresentationManager : IDisposable
             }
 
             bool applied = _dpi.SetPercentageAndVerify(sharedSource, targetPercent, scale.Value);
+            if (applied)
+            {
+                _appliedDpiPercent = targetPercent; // B6: reported in the live status
+            }
 
             sw.Stop();
             Log.Info("DPI scale applied", "Fix",
@@ -542,11 +1087,11 @@ public sealed class PresentationManager : IDisposable
 
             // Step 1: return to the extended topology and the captured source modes.
             Log.Info("Restore Step 1: Display mode", "Restore", ("step", "displayMode"));
-            LogTopology("Topology before restore", "Restore", _topology.Query());
+            LogTopology("Topology before restore", "Restore", QueryTopology());
 
             string? modeError = _mode.Restore();
 
-            LogTopology("Topology after restore", "Restore", _topology.Query(), modeError);
+            LogTopology("Topology after restore", "Restore", QueryTopology(), modeError);
 
             // Step 2: put the original DPI scales back (roadmap 1.9).
             if (_dpiSnapshot is { Count: > 0 } dpiEntries)
@@ -572,9 +1117,18 @@ public sealed class PresentationManager : IDisposable
                     ("step", "nightLight"));
             }
 
+            // Step 4: undo the B3 presentation extras (best-effort, failure-isolated).
+            RestoreExtras();
+
+            // B6: the final Idle status must not report a stale "applied" fix.
+            _appliedSourceMode = null;
+            _appliedDpiPercent = null;
+            _nightLightDisabled = null;
+
             MarkOwnMutation();
             _nightLightSnapshot = null;
             _dpiSnapshot = null;
+            _extras = null;
             _journal.Clear();
             _session.MarkIdle();
             overall.Stop();
@@ -587,6 +1141,7 @@ public sealed class PresentationManager : IDisposable
             Log.Exception(ex, "Restore");
             _nightLightSnapshot = null;
             _dpiSnapshot = null;
+            _extras = null;
             _session.MarkIdle();
         }
 
@@ -595,8 +1150,45 @@ public sealed class PresentationManager : IDisposable
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
 
+    /// <summary>
+    /// B4: persists the current settings through the store when one was provided.
+    /// Never throws — a settings write failure must not affect the fix sequence.
+    /// </summary>
+    private void PersistSettings()
+    {
+        if (_settingsStore is null)
+        {
+            return;
+        }
+
+        try
+        {
+            BeamSettings snapshot = CurrentSettings;
+            _settings = snapshot;
+            _settingsStore.Save(snapshot);
+        }
+        catch (Exception ex)
+        {
+            Log.Warn("Settings persist failed — continuing with in-memory settings", "Settings",
+                ("error", ex.Message));
+        }
+    }
+
     /// <summary>UC-12 rule 8: records that Beam itself just mutated the display stack.</summary>
     private void MarkOwnMutation() => _lastOwnMutationUtc = _clock();
+
+    /// <summary>
+    /// Queries the topology and refreshes the <see cref="CurrentExternalPaths"/> cache, so
+    /// the tray menu can read the cache on the UI thread without a display query (A6).
+    /// </summary>
+    private DisplayTopology QueryTopology()
+    {
+        DisplayTopology topology = _topology.Query();
+        _lastTopology = topology;
+        _currentExternalPaths = topology.ExternalPathsIgnoring(_ignoredDisplays);
+        RecordKnownDevices(topology); // C1: feed the settings Devices table
+        return topology;
+    }
 
     /// <summary>
     /// Roadmap 1.9: captures the current DPI percent of the shared source before any
@@ -606,7 +1198,7 @@ public sealed class PresentationManager : IDisposable
     {
         try
         {
-            DisplayPath? sharedSource = _topology.Query().ActivePaths.FirstOrDefault();
+            DisplayPath? sharedSource = QueryTopology().ActivePaths.FirstOrDefault();
             if (sharedSource is null)
             {
                 return null;
@@ -637,7 +1229,7 @@ public sealed class PresentationManager : IDisposable
         {
             try
             {
-                DisplayPath? path = _topology.Query().Paths.FirstOrDefault(p =>
+                DisplayPath? path = QueryTopology().Paths.FirstOrDefault(p =>
                     p.AdapterId == entry.AdapterId && p.SourceId == entry.SourceId);
                 if (path is null)
                 {
@@ -660,6 +1252,167 @@ public sealed class PresentationManager : IDisposable
             catch (Exception ex)
             {
                 Log.Exception(ex, "Restore", ("step", "dpi"));
+            }
+        }
+    }
+
+    /// <summary>
+    /// B3: captures the previous extras state (toasts enabled, current default audio
+    /// endpoint) before any mutation, so restore — including crash recovery from the
+    /// journal — can put each one back exactly. Never throws; an extra whose previous
+    /// state cannot be read is simply absent from the result.
+    /// </summary>
+    private JournalExtras? CaptureExtras()
+    {
+        bool? toasts = null;
+        string? previousAudio = null;
+
+        if (_doNotDisturb && _dnd is not null)
+        {
+            try
+            {
+                toasts = _dnd.SnapshotToastsEnabled();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extras capture: toasts snapshot failed — skipping the DND extra", "Fix",
+                    ("step", "extrasCapture"), ("extra", "dnd"), ("error", ex.Message));
+            }
+        }
+
+        if (_audioToHdmi && _audio is not null)
+        {
+            try
+            {
+                previousAudio = _audio.GetDefaultRenderEndpoint();
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extras capture: default audio endpoint read failed — skipping the audio extra", "Fix",
+                    ("step", "extrasCapture"), ("extra", "audio"), ("error", ex.Message));
+            }
+        }
+
+        return toasts is null && previousAudio is null ? null : new JournalExtras(toasts, previousAudio);
+    }
+
+    /// <summary>
+    /// B3: engages the presentation extras (keep-awake hold, toasts off, audio on HDMI).
+    /// Every extra is policy-gated and individually failure-isolated: a failure is logged
+    /// and never fails the session.
+    /// </summary>
+    private void ApplyExtras()
+    {
+        if (_keepAwake && _keepAwakePort is not null)
+        {
+            try
+            {
+                _keepAwakePort.Hold();
+                Log.Info("Extra applied: keep-awake hold engaged", "Fix",
+                    ("step", "extras"), ("extra", "keepAwake"));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extra failed: keep-awake hold — continuing", "Fix",
+                    ("step", "extras"), ("extra", "keepAwake"), ("error", ex.Message));
+            }
+        }
+
+        if (_doNotDisturb && _dnd is not null)
+        {
+            try
+            {
+                if (_extras?.ToastsWereEnabled is true)
+                {
+                    bool ok = _dnd.SetToastsEnabled(false);
+                    Log.Info("Extra applied: toast notifications silenced", "Fix",
+                        ("step", "extras"), ("extra", "dnd"), ("verified", ok.ToString()));
+                }
+                else
+                {
+                    Log.Info("Extra skipped: toasts already off or unknown — nothing to silence", "Fix",
+                        ("step", "extras"), ("extra", "dnd"),
+                        ("toastsWereEnabled", _extras?.ToastsWereEnabled?.ToString() ?? "unknown"));
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extra failed: DND — continuing", "Fix",
+                    ("step", "extras"), ("extra", "dnd"), ("error", ex.Message));
+            }
+        }
+
+        if (_audioToHdmi && _audio is not null)
+        {
+            try
+            {
+                string? switched = _audio.SwitchToHdmi();
+                Log.Info(switched is null
+                        ? "Extra skipped: no HDMI/projector audio endpoint found"
+                        : "Extra applied: default audio switched to the HDMI endpoint",
+                    "Fix",
+                    ("step", "extras"), ("extra", "audio"),
+                    ("endpoint", switched ?? "none"),
+                    ("previous", _extras?.PreviousAudioEndpoint ?? "unknown"));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extra failed: audio switch — continuing", "Fix",
+                    ("step", "extras"), ("extra", "audio"), ("error", ex.Message));
+            }
+        }
+    }
+
+    /// <summary>
+    /// B3: undoes the presentation extras using the captured previous state. Best-effort:
+    /// each extra is individually failure-isolated and never fails the restore.
+    /// </summary>
+    private void RestoreExtras()
+    {
+        if (_keepAwakePort is not null)
+        {
+            try
+            {
+                _keepAwakePort.Release();
+                Log.Info("Extra restored: keep-awake hold released", "Restore",
+                    ("step", "extras"), ("extra", "keepAwake"));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extra restore failed: keep-awake release — continuing", "Restore",
+                    ("step", "extras"), ("extra", "keepAwake"), ("error", ex.Message));
+            }
+        }
+
+        if (_dnd is not null && _extras?.ToastsWereEnabled is bool wasEnabled)
+        {
+            try
+            {
+                bool ok = _dnd.SetToastsEnabled(wasEnabled);
+                Log.Info("Extra restored: toast notifications setting restored", "Restore",
+                    ("step", "extras"), ("extra", "dnd"),
+                    ("enabled", wasEnabled.ToString()), ("verified", ok.ToString()));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extra restore failed: DND — continuing", "Restore",
+                    ("step", "extras"), ("extra", "dnd"), ("error", ex.Message));
+            }
+        }
+
+        if (_audio is not null && _extras?.PreviousAudioEndpoint is string previous)
+        {
+            try
+            {
+                bool ok = _audio.Restore(previous);
+                Log.Info("Extra restored: default audio endpoint restored", "Restore",
+                    ("step", "extras"), ("extra", "audio"),
+                    ("endpoint", previous), ("stillExists", ok.ToString()));
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Extra restore failed: audio — continuing", "Restore",
+                    ("step", "extras"), ("extra", "audio"), ("error", ex.Message));
             }
         }
     }
@@ -739,6 +1492,33 @@ public sealed class PresentationManager : IDisposable
 
         _disposed = true;
         _changes.Changed -= OnDisplayChanged;
+        _pauseTimer?.Dispose(); // C1/C2: stop a pending timed-pause resume
+        _pauseTimer = null;
+
+        // B3: always drop the keep-awake hold when the manager goes away.
+        try
+        {
+            _keepAwakePort?.Release();
+        }
+        catch
+        {
+            // Best-effort: the process is shutting down anyway.
+        }
+
+        // B6: the tray is gone — remove its status file so `beam status` reports no session.
+        if (_statusWriter is not null)
+        {
+            _session.StateChanged -= OnSessionStateChanged;
+            try
+            {
+                _statusWriter.Clear();
+            }
+            catch
+            {
+                // Best-effort.
+            }
+        }
+
         _gate.Dispose();
     }
 }

@@ -3,6 +3,8 @@ using Beam.App.Journal;
 using Beam.Core.Display;
 using Beam.Core.NightLight;
 using Beam.Core.Ports;
+using Beam.Core.Startup;
+using Beam.Core.Status;
 
 namespace Beam.Cli;
 
@@ -27,6 +29,11 @@ public sealed class CliApp
     private readonly IJournalStore _journal;
     private readonly TextWriter _out;
     private readonly TextWriter _error;
+    private readonly Func<IDisposable?>? _lockFactory;
+
+    // B6: reads the tray's live status file (status.json). Null in tests that do not
+    // exercise the session block; the composition root passes StatusFile.TryRead.
+    private readonly Func<StatusFileRecord?>? _statusReader;
 
     public CliApp(
         ITopologySource topology,
@@ -35,7 +42,9 @@ public sealed class CliApp
         INightLightController nightLight,
         IJournalStore journal,
         TextWriter? output = null,
-        TextWriter? error = null)
+        TextWriter? error = null,
+        Func<IDisposable?>? lockFactory = null,
+        Func<StatusFileRecord?>? statusReader = null)
     {
         _topology = topology ?? throw new ArgumentNullException(nameof(topology));
         _mode = mode ?? throw new ArgumentNullException(nameof(mode));
@@ -44,6 +53,10 @@ public sealed class CliApp
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _out = output ?? Console.Out;
         _error = error ?? Console.Error;
+        // When null, the real single-instance lock is used; tests inject a fake so
+        // parallel test runs never contend on the production Local\ mutex.
+        _lockFactory = lockFactory;
+        _statusReader = statusReader;
     }
 
     /// <summary>The CLI reports the product version from the assembly metadata.</summary>
@@ -74,6 +87,28 @@ public sealed class CliApp
             return ExitCodes.InvalidArguments;
         }
 
+        // Phase A (A1): mutating commands hold the same per-user single-instance mutex as
+        // the tray app for the duration of the command, so a scripted `beam apply` can
+        // never race the tray's fix sequence (concurrent SetDisplayConfig / journal writes).
+        IDisposable? lease = null;
+        if (RequiresSingleInstanceLock(command, options))
+        {
+            lease = AcquireLock();
+            if (lease is null)
+            {
+                const string msg = "Another Beam instance is holding the single-instance lock — try again in a moment.";
+                if (options.Json)
+                {
+                    WriteJson(new { version = Version, success = false, error = msg });
+                }
+                else
+                {
+                    _error.WriteLine(msg);
+                }
+                return ExitCodes.Failure;
+            }
+        }
+
         try
         {
             return command switch
@@ -98,7 +133,34 @@ public sealed class CliApp
             _error.WriteLine(ex.Message);
             return ExitCodes.Failure;
         }
+        finally
+        {
+            lease?.Dispose();
+        }
     }
+
+    /// <summary>
+    /// Commands that mutate display state, Night Light, or the journal must hold the
+    /// single-instance lock; read-only commands (help, status, devices, dpi read) stay
+    /// lock-free so monitoring and scripting never block behind the tray.
+    /// </summary>
+    private static bool RequiresSingleInstanceLock(string command, CliOptions options) => command switch
+    {
+        "apply" => true,
+        "restore" => true,
+        "nightlight" => true,
+        "dpi" => options.Positionals.Count > 0
+            && options.Positionals[0].Equals("set", StringComparison.OrdinalIgnoreCase),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Acquires the lock via the injected factory (the composition root passes the real
+    /// <see cref="SingleInstanceLock"/>). Null means the real lock; a null return means
+    /// the lock is held elsewhere and the command must be refused.
+    /// </summary>
+    private IDisposable? AcquireLock() =>
+        _lockFactory is null ? SingleInstanceLock.TryAcquire() : _lockFactory();
 
     // ── Commands ────────────────────────────────────────────────────────────────
 
@@ -124,6 +186,17 @@ public sealed class CliApp
         DisplayTopology topology = _topology.Query();
         bool needsFix = TriggerCondition.IsMet(topology);
 
+        // B6: merge the running tray's live status (status.json) when present.
+        StatusFileRecord? session = null;
+        try
+        {
+            session = _statusReader?.Invoke();
+        }
+        catch
+        {
+            session = null; // an unreadable status file must not break `beam status`
+        }
+
         var displays = topology.ActivePaths.Select(p => new
         {
             gdi = p.SourceGdiName,
@@ -148,6 +221,18 @@ public sealed class CliApp
                 aspectMismatch = topology.HasMirrorAspectMismatch,
                 displays,
                 needsFix,
+                session = session is null
+                    ? null
+                    : (object?)new
+                    {
+                        state = session.State,
+                        reason = session.Reason,
+                        updatedAtUtc = session.UpdatedAtUtc,
+                        pid = session.Pid,
+                        appliedSourceMode = session.AppliedSourceMode,
+                        appliedDpiPercent = session.AppliedDpiPercent,
+                        nightLightDisabled = session.NightLightDisabled,
+                    },
             });
             return ExitCodes.Success;
         }
@@ -156,6 +241,15 @@ public sealed class CliApp
             $"Mirrored: {(topology.IsMirrored ? "YES" : "no")}  " +
             $"Aspect mismatch: {(topology.HasMirrorAspectMismatch ? "YES" : "no")}  " +
             $"Needs fix: {(needsFix ? "YES" : "no")}");
+        if (session is not null)
+        {
+            _out.WriteLine(
+                $"Session: {session.State}" +
+                (session.Reason is null ? string.Empty : $" ({session.Reason})") +
+                $"  pid={session.Pid}  updated={session.UpdatedAtUtc}" +
+                (session.AppliedSourceMode is null ? string.Empty : $"  applied={session.AppliedSourceMode}"));
+        }
+
         _out.WriteLine();
         _out.WriteLine("Active displays:");
         foreach (var d in displays)

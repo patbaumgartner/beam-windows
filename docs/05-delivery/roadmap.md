@@ -51,16 +51,16 @@ restore + safety + tray.
 
 ## Phase 2 — Solid (4–5 weeks)
 
-| # | Task | UC |
-|---|---|---|
-| 2.1 | Profiles: auto-learn, edit, import/export | UC-10 |
-| 2.2 | Optional projector classifier (EDID scoring, `onlyProjectors`) | UC-02 refinement |
-| 2.3 | Docks, KVM, AVR, multi-display, flapping | UC-13 |
-| 2.4 | Diagnostics window + export bundle | UC-14 |
-| 2.5 | Full settings + onboarding | UC-15 |
-| 2.6 | Packaging (MSIX), startup task, uninstall | — |
-| 2.7 | Accessibility + localization pass | — |
-| 2.8 | Hardware matrix (community testers) | — |
+| # | Task | UC | Status |
+|---|---|---|---|
+| 2.1 | Profiles: auto-learn, edit, import/export | UC-10 | partial — known-devices table (auto-apply / ignore / forget) shipped in 0.2.0 (C1); per-projector profiles remain |
+| 2.2 | Optional projector classifier (EDID scoring, `onlyProjectors`) | UC-02 refinement | deferred — D6: aspect-mismatch trigger already covers TVs + projectors |
+| 2.3 | Docks, KVM, AVR, multi-display, flapping | UC-13 | flap coalescing + stress tests DONE; hardware runs tracked in [hardware-matrix.md](hardware-matrix.md) (H3/H4/H12/H13) |
+| 2.4 | Diagnostics window + export bundle | UC-14 | **DONE 2026-11-14 (C4)** — 200-event timeline, copy summary, sanitized zip bundle (A4), re-evaluate now, safe-mode reset |
+| 2.5 | Full settings + onboarding | UC-15 | **DONE 2026-11-14 (C1/C3)** — WPF settings window inside `Beam.exe`, first-run toast shown once |
+| 2.6 | Packaging (MSIX), startup task, uninstall | — | deferred deliberately — Inno per-user installer + HKCU `Run` keeps the single-exe install simple (C1) |
+| 2.7 | Accessibility + localization pass | — | **DONE 2026-11-14 (C5)** — externalized strings (`TrayStrings`), UIA names, `TaskbarCreated` re-registration |
+| 2.8 | Hardware matrix (community testers) | — | matrix + results log: [hardware-matrix.md](hardware-matrix.md) |
 
 **Exit:** beta-ready; no known data-loss or display-breaking bug; docs complete.
 
@@ -70,7 +70,7 @@ restore + safety + tray.
 |---|---|---|
 | 3.1 | CLI + JSON + exit codes | UC-16 | **DONE 2026-10-31** — `Beam.Cli`: status/devices/apply/restore/dpi/nightlight + `--json` + exit codes, installer + CI packaged |
 | 3.2 | Command Palette extension | UC-16 | |
-| 3.3 | Presentation extras: keep awake, DND, audio (opt-in) | UC-17 |
+| 3.3 | Presentation extras: keep awake, DND, audio (opt-in) | UC-17 | **DONE 2026-11-14 (B3)** — default-on and switchable, journaled, failure never fails the session (ADR-0017) |
 | 3.4 | Performance/robustness hardening | — |
 | 3.5 | Signing + SmartScreen + release pipeline | **DONE 2026-10-31** — Inno Setup installer + GitHub Actions CI snapshot + release on tag |
 
@@ -84,6 +84,15 @@ restore + safety + tray.
 | 4.4 | PR 2: Night Light service + setting + CLI |
 | 4.5 | PR 3: projector classification + trigger |
 | 4.6 | Docs + localization handoff |
+
+## Presenter edition — 0.2.0 (2026-11-14)
+
+Phases A–D of [presenter-edition-plan.md](presenter-edition-plan.md) are implemented and
+green (build 0 warnings, **794 tests, 0 failed**): hardening (A), status file / prefer-
+native / extras / settings store / ignore-display / CLI session block / hotkey (B),
+settings + diagnostics windows, tray polish, first-run toast, a11y-loc (C), and signing +
+docs + hardware matrix (D). Details in [CHANGELOG.md](../../CHANGELOG.md) §0.2.0 and
+ADRs 0016–0019.
 
 ## Milestones
 

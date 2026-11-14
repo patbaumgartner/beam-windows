@@ -22,8 +22,12 @@ public interface IDisplayModeController
     /// Enters clone/duplicate mode and switches the shared source to the best supported
     /// 16:9 mode.
     /// </summary>
+    /// <param name="preferNative">
+    /// C1/B2: when true, the projector's EDID-native 16:9 mode is ranked first; when false,
+    /// ranking falls back to highest pixels, then 60 Hz over 30 Hz.
+    /// </param>
     /// <returns><c>null</c> on success; an error message when the change was rejected.</returns>
-    string? ApplyCloneWith16x9();
+    string? ApplyCloneWith16x9(bool preferNative = true);
 
     /// <summary>Restores the original topology and captured source modes.</summary>
     /// <returns><c>null</c> on success; an error message otherwise.</returns>

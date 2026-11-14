@@ -15,12 +15,19 @@ public static class TriggerCondition
     /// True when the topology is mirrored, contains at least one external path, and the
     /// shared desktop has a different aspect ratio than a mirrored display expects.
     /// </summary>
-    public static bool IsMet(DisplayTopology topology)
+    public static bool IsMet(DisplayTopology topology) => IsMet(topology, null);
+
+    /// <summary>
+    /// Same as <see cref="IsMet(DisplayTopology)"/>, but paths whose target identity is in
+    /// <paramref name="ignoredIdentities"/> are excluded before evaluation (B5 "Ignore this
+    /// display": a display the user excluded must not trigger or block a fix).
+    /// </summary>
+    public static bool IsMet(DisplayTopology topology, IReadOnlyCollection<string>? ignoredIdentities)
     {
         ArgumentNullException.ThrowIfNull(topology);
 
         return topology.IsMirrored
-            && topology.HasMirrorAspectMismatch
-            && topology.ExternalPaths.Count > 0;
+            && topology.HasMirrorAspectMismatchIgnoring(ignoredIdentities)
+            && topology.ExternalPathsIgnoring(ignoredIdentities).Count > 0;
     }
 }
