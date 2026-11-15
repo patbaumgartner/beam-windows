@@ -138,4 +138,7 @@ toggles with raw mode indices + `SDC_USE_SUPPLIED_DISPLAY_CONFIG`). Evidence exc
 - **Verify-after-mode race** from the 2026-11-14 22:37 run above was classified as a
   stale-read race (no settle delay after CDS apply; the clone apply waits
   `settleMs=1500`, the mode apply does not) and filed as
-  [issue #19](https://github.com/patbaumgartner/beam-windows/issues/19) on 2026-11-15.
+  [issue #1](https://github.com/patbaumgartner/beam-windows/issues/1) on 2026-11-15 —
+  fixed the same day (commit `bc6baa3`): the verify-after-mode now settle-polls
+  `QueryTopology()` (100 ms × up to 20 attempts) instead of reading once, so a slow OS
+  re-enumeration no longer false-fails the verify.

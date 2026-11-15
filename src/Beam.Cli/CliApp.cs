@@ -325,7 +325,7 @@ public sealed class CliApp
                         action = "duplicate + 16:9 shared source",
                         target = "best supported 16:9",
                         nightLight = "off",
-                        dpi = "optimal per ScalePlanner",
+                        dpi = "auto (best readable size)",
                         before = TopologySummary(before),
                     },
                 });
@@ -335,7 +335,7 @@ public sealed class CliApp
                 _out.WriteLine("Dry run — would apply:");
                 _out.WriteLine("  mode:       duplicate + shared source 16:9 (best supported)");
                 _out.WriteLine("  NightLight: off");
-                _out.WriteLine("  dpi:        optimal per ScalePlanner");
+                _out.WriteLine("  dpi:        auto (best readable size)");
             }
             return ExitCodes.Success;
         }
@@ -367,7 +367,7 @@ public sealed class CliApp
             _out.WriteLine($"Night Light: {nightLight.Message}");
             _out.WriteLine($"Display mode: {(modeError is null ? "OK" : modeError)}");
             _out.WriteLine($"DPI: {dpiMessage}");
-            _out.WriteLine("Run 'beam restore' to undo (the journal records the original Night Light state).");
+            _out.WriteLine("Run 'beam restore' to undo.");
         }
 
         return success ? ExitCodes.Success : ExitCodes.Failure;
@@ -626,7 +626,7 @@ public sealed class CliApp
 
     private void PrintHelp()
     {
-        _out.WriteLine("Beam — projector mode label. Usage:");
+        _out.WriteLine("Beam — Projector Mode for Windows. Usage:");
         _out.WriteLine();
         _out.WriteLine("  beam status [--json]");
         _out.WriteLine("  beam devices [--json]");

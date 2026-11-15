@@ -8,6 +8,16 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
 
 ## [Unreleased]
 
+### Fixed
+- **Verify-after-mode no longer reads a stale topology** ([issue #1](https://github.com/patbaumgartner/beam-windows/issues/1)).
+  `ChangeDisplaySettingsEx` returns before Windows has re-enumerated the display paths, so the
+  single immediate post-apply `QueryTopology()` could false-fail the verify
+  ("verify-after-mode failed") even though the apply succeeded — observed live on 2026-11-14
+  (CDS result=0 at 22:37:56.140, stale verify failure at 22:37:56.389). `PresentationManager`
+  now settle-polls the topology (100 ms interval, up to 20 attempts ≈ 2 s) until the trigger
+  condition clears, and still fails (and unwinds) when the mismatch is genuinely still present
+  after the window. Test suite: **795 tests** (was 794; App 200).
+
 ## [0.2.0] — 2026-11-14
 
 **Presenter Edition** (plan: [docs/05-delivery/presenter-edition-plan.md](docs/05-delivery/presenter-edition-plan.md), Phases B–D).

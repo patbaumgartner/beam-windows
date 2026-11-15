@@ -10,7 +10,7 @@
     <AssemblyName>Beam</AssemblyName>
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <Product>Beam</Product>
-    <Description>Projector mode label — removes black bars, applies readable DPI, and manages Night Light in duplicate mode.</Description>
+    <Description>Projector mode for Windows — removes black bars, applies readable DPI, and manages Night Light in duplicate mode.</Description>
   </PropertyGroup>
 
   <!-- Beam.Tray is the main application that brings everything together. -->
