@@ -37,6 +37,19 @@ public sealed class PresentationManager : IDisposable
     /// <summary>UC-12 rule 8: ignore display-change events this long after our own mutation.</summary>
     public static readonly TimeSpan DefaultSelfChangeWindow = TimeSpan.FromSeconds(3);
 
+    /// <summary>
+    /// Issue #1: after a successful mode apply, the OS may still report the old topology
+    /// for a moment, so the verify-after-mode check polls instead of reading once.
+    /// This is the poll interval between those re-queries.
+    /// </summary>
+    public static readonly TimeSpan DefaultVerifySettleInterval = TimeSpan.FromMilliseconds(100);
+
+    /// <summary>
+    /// Issue #1: bound on the verify-after-mode re-queries (≈2 s at the default interval),
+    /// so a genuinely still-mismatched topology still fails the verify instead of hanging.
+    /// </summary>
+    public const int DefaultVerifyMaxAttempts = 20;
+
     private readonly IDisplayChangeSource _changes;
     private readonly ITopologySource _topology;
     private readonly IDisplayModeController _mode;
@@ -46,6 +59,8 @@ public sealed class PresentationManager : IDisposable
     private readonly SessionManager _session;
     private readonly TimeSpan _selfChangeWindow;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly TimeSpan _verifySettleInterval;
+    private readonly int _verifyMaxAttempts;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<NightLightSnapshot>? _nightLightSnapshot;
@@ -309,7 +324,9 @@ public sealed class PresentationManager : IDisposable
         IKeepAwake? keepAwake = null,
         IDndController? dnd = null,
         IAudioController? audio = null,
-        IStatusWriter? statusWriter = null)
+        IStatusWriter? statusWriter = null,
+        TimeSpan? verifySettleInterval = null,
+        int? verifyMaxAttempts = null)
     {
         _changes = changes ?? throw new ArgumentNullException(nameof(changes));
         _topology = topology ?? throw new ArgumentNullException(nameof(topology));
@@ -320,6 +337,8 @@ public sealed class PresentationManager : IDisposable
         _session = session ?? throw new ArgumentNullException(nameof(session));
         _selfChangeWindow = selfChangeWindow ?? DefaultSelfChangeWindow;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
+        _verifySettleInterval = verifySettleInterval ?? DefaultVerifySettleInterval;
+        _verifyMaxAttempts = Math.Max(1, verifyMaxAttempts ?? DefaultVerifyMaxAttempts);
         _settingsStore = settings;
         _keepAwakePort = keepAwake;
         _dnd = dnd;
@@ -931,12 +950,17 @@ public sealed class PresentationManager : IDisposable
                 MarkOwnMutation();
 
                 // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
-                if (modeError is null && TriggerCondition.IsMet(QueryTopology(), _ignoredDisplays))
+                // Issue #1: ChangeDisplaySettingsEx returns before the OS has
+                // re-enumerated the display paths, so a single immediate query can read
+                // a stale topology and false-fail the verify. Poll for a bounded settle
+                // window instead of reading once.
+                DisplayTopology afterMode = QueryTopology();
+                if (modeError is null)
                 {
-                    modeError = "verify-after-mode failed: mirror aspect mismatch still present after apply";
+                    (modeError, afterMode) = await VerifyTriggerClearedAsync(afterMode).ConfigureAwait(false);
                 }
 
-                LogTopology("Topology after mode change", "Fix", QueryTopology(), modeError);
+                LogTopology("Topology after mode change", "Fix", afterMode, modeError);
 
                 if (modeError is not null)
                 {
@@ -953,7 +977,8 @@ public sealed class PresentationManager : IDisposable
                 Log.Info("Display mode applied and verified", "Fix", ("step", "displayMode"));
 
                 // B6: remember what the fix applied so the live status can report it.
-                DisplayPath? appliedShared = QueryTopology().ActivePaths.FirstOrDefault();
+                // Reuse the settled topology from the verify — no extra query needed.
+                DisplayPath? appliedShared = afterMode.ActivePaths.FirstOrDefault();
                 _appliedSourceMode = appliedShared?.SourceMode is { } sm
                     ? $"{sm.Width}x{sm.Height}@{sm.RefreshHz:0}"
                     : null;
@@ -994,6 +1019,45 @@ public sealed class PresentationManager : IDisposable
         }
 
         await Task.CompletedTask.ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// UC-12 rule 4 verify (issue #1): returns null when the trigger is gone from
+    /// <paramref name="first"/> or becomes gone within the bounded settle window,
+    /// otherwise the verify-failed error. Each re-query goes through
+    /// <see cref="QueryTopology"/>, so the external-paths cache stays fresh too.
+    /// </summary>
+    private async Task<(string? Error, DisplayTopology Topology)> VerifyTriggerClearedAsync(DisplayTopology first)
+    {
+        const string verifyError = "verify-after-mode failed: mirror aspect mismatch still present after apply";
+
+        DisplayTopology topology = first;
+        for (int attempt = 1; ; attempt++)
+        {
+            if (!TriggerCondition.IsMet(topology, _ignoredDisplays))
+            {
+                return (null, topology);
+            }
+
+            if (attempt >= _verifyMaxAttempts)
+            {
+                Log.Warn("Verify-after-mode: trigger still met after the settle window — verify failed", "Fix",
+                    ("attempts", attempt.ToString()),
+                    ("maxAttempts", _verifyMaxAttempts.ToString()),
+                    ("pollMs", _verifySettleInterval.TotalMilliseconds.ToString()));
+                return (verifyError, topology);
+            }
+
+            if (attempt == 1)
+            {
+                Log.Info("Verify-after-mode: trigger still met right after apply — polling for the OS to settle", "Fix",
+                    ("maxAttempts", _verifyMaxAttempts.ToString()),
+                    ("pollMs", _verifySettleInterval.TotalMilliseconds.ToString()));
+            }
+
+            await Task.Delay(_verifySettleInterval).ConfigureAwait(false);
+            topology = QueryTopology();
+        }
     }
 
     private void ApplyDpi()
