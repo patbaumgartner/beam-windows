@@ -281,6 +281,85 @@ public class FileLogSinkTests : IDisposable
         Assert.False(File.Exists(sink.DetailedLogPath + ".4"));
     }
 
+    [Fact]
+    public void Write_PadsThreadIdToThreeColumns()
+    {
+        var sink = new FileLogSink(_dir);
+
+        sink.Write(LogLevel.Info, "tid test", "Test", Array.Empty<KeyValuePair<string, object?>>());
+
+        // Write runs on the calling thread, so the logged tid is this test's tid.
+        string line = File.ReadAllLines(sink.LogPath).Single();
+        Assert.Contains($"[tid={Environment.CurrentManagedThreadId,3}]", line);
+    }
+
+    [Fact]
+    public void Write_ByDefault_DoesNotWriteToConsole()
+    {
+        var sink = new FileLogSink(_dir);
+        TextWriter original = Console.Out;
+        var capture = new StringWriter();
+        try
+        {
+            Console.SetOut(capture);
+            sink.Write(LogLevel.Info, "console-marker-9f3e2a", "Test", Array.Empty<KeyValuePair<string, object?>>());
+        }
+        finally
+        {
+            Console.SetOut(original);
+        }
+
+        Assert.DoesNotContain("console-marker-9f3e2a", capture.ToString());
+    }
+
+    [Fact]
+    public void Rotation_WithMaxBackupsZero_StillKeepsOneBackup_AndNeverTouchesDotZeroFile()
+    {
+        var sink = new FileLogSink(_dir, maxFileBytes: 50, maxBackups: 0);
+        string sentinel = sink.LogPath + ".0";
+        File.WriteAllText(sentinel, "sentinel");
+
+        for (int i = 0; i < 5; i++)
+        {
+            sink.Write(LogLevel.Info, $"rotation padding message number {i}", "Test",
+                Array.Empty<KeyValuePair<string, object?>>());
+        }
+
+        // beam.log.0 is outside the backup window: rotation must leave it alone.
+        Assert.True(File.Exists(sentinel), "beam.log.0 must survive rotation");
+        Assert.Equal("sentinel", File.ReadAllText(sentinel));
+        Assert.True(File.Exists(sink.LogPath + ".1"), "maxBackups=0 clamps to one backup");
+    }
+
+    [Fact]
+    public void Ctor_ByDefault_KeepsThreeBackups()
+    {
+        var sink = new FileLogSink(_dir, maxFileBytes: 200); // maxBackups left at the default
+
+        for (int i = 0; i < 20; i++)
+        {
+            sink.Write(LogLevel.Info, $"message number {i} with some padding", "Test",
+                Array.Empty<KeyValuePair<string, object?>>());
+        }
+
+        Assert.True(File.Exists(sink.LogPath + ".1"));
+        Assert.True(File.Exists(sink.LogPath + ".2"));
+        Assert.True(File.Exists(sink.LogPath + ".3"));
+        Assert.False(File.Exists(sink.LogPath + ".4"), "the default keeps exactly three backups");
+    }
+
+    [Fact]
+    public void Ctor_MaxFileBytesZero_ClampsToOneByte_SoEmptyFileDoesNotRotateYet()
+    {
+        var sink = new FileLogSink(_dir, maxFileBytes: 0);
+        File.WriteAllText(sink.LogPath, string.Empty); // 0 bytes: below the clamped 1-byte cap
+
+        sink.Write(LogLevel.Info, "first", "Test", Array.Empty<KeyValuePair<string, object?>>());
+
+        Assert.False(File.Exists(sink.LogPath + ".1"), "0-byte file is below the cap, no rotation yet");
+        Assert.Single(File.ReadAllLines(sink.LogPath));
+    }
+
     private sealed class NullSink : ILogSink
     {
         public static readonly NullSink Instance = new();

@@ -112,9 +112,8 @@ public sealed class FileLogSink : ILogSink
     {
         ArgumentNullException.ThrowIfNull(exception);
 
-        var pairs = new List<KeyValuePair<string, object?>>(data.Count + 1);
-        pairs.AddRange(data);
-        pairs.Add(new KeyValuePair<string, object?>("stack", exception.ToString()));
+        var pairs = new List<KeyValuePair<string, object?>>(data);
+        pairs.Add(new("stack", exception.ToString()));
 
         Write(
             LogLevel.Error,
@@ -137,10 +136,10 @@ public sealed class FileLogSink : ILogSink
     }
 
     /// <summary>
-    /// Rotates <paramref name="path"/> once it has reached the size cap: the oldest
-    /// backup (<c>path.N</c>) is deleted, each <c>path.i</c> moves to <c>path.i+1</c>,
-    /// and the current file becomes <c>path.1</c>. Best-effort — a rotation failure
-    /// just means the file keeps growing until the next append.
+    /// Rotates <paramref name="path"/> once it has reached the size cap: the current file
+    /// becomes <c>path.1</c> and each existing backup <c>path.i</c> moves to
+    /// <c>path.i+1</c>, overwriting the oldest <c>path.N</c>. Best-effort — a rotation
+    /// failure just means the file keeps growing until the next append.
     /// </summary>
     private void RotateIfNeeded(string path)
     {
@@ -150,22 +149,15 @@ public sealed class FileLogSink : ILogSink
             return;
         }
 
-        string oldest = path + "." + _maxBackups;
-        if (File.Exists(oldest))
+        // One pass, highest slot first: path -> .1, .1 -> .2, …, .(N-1) -> .N.
+        for (int i = _maxBackups; i > 0; i--)
         {
-            File.Delete(oldest);
-        }
-
-        for (int i = _maxBackups - 1; i >= 1; i--)
-        {
-            string src = path + "." + i;
+            string src = i == 1 ? path : path + "." + (i - 1);
             if (File.Exists(src))
             {
-                File.Move(src, path + "." + (i + 1), overwrite: true);
+                File.Move(src, path + "." + i, overwrite: true);
             }
         }
-
-        File.Move(path, path + ".1", overwrite: true);
     }
 
     private static string Escape(object? value)

@@ -41,6 +41,15 @@ public class LogSanitizerTests
     }
 
     [Fact]
+    public void IsClean_IgnoresTinySecrets_SameGuardAsSanitize()
+    {
+        // Secrets shorter than 3 chars are never treated as sensitive ("C", "ab")…
+        Assert.True(LogSanitizer.IsClean(@"C:\temp", "C", "ab"));
+        // …but a 3-char secret still counts.
+        Assert.False(LogSanitizer.IsClean("value ab1 here", "ab1"));
+    }
+
+    [Fact]
     public void Sanitize_ReplacesEveryOccurrence()
     {
         string result = LogSanitizer.Sanitize("patbaum/patbaum/patbaum", "patbaum");

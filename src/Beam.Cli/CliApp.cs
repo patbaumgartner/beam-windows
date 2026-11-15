@@ -282,11 +282,27 @@ public sealed class CliApp
             return ExitCodes.Success;
         }
 
-        foreach (var dev in devices)
+        // Human output answers "what is connected right now?": active displays as rows,
+        // inactive known targets as a single count (Windows keeps many stale entries).
+        var active = devices.Where(d => d.active).ToArray();
+        foreach (var dev in active)
         {
             _out.WriteLine(
-                $"{(dev.active ? "[active] " : "[inactive] ")}{dev.gdi}  {dev.name}  " +
+                $"[active] {dev.gdi}  {dev.name}  " +
                 $"({dev.manufacturer})  {dev.output}{(dev.internalPanel ? "  internal" : string.Empty)}");
+        }
+
+        int inactiveCount = devices.Length - active.Length;
+        if (inactiveCount > 0)
+        {
+            _out.WriteLine(inactiveCount == 1
+                ? "... and 1 more known output is inactive (use --json to list all)."
+                : $"... and {inactiveCount} more known outputs are inactive (use --json to list all).");
+        }
+
+        if (devices.Length == 0)
+        {
+            _out.WriteLine("No displays detected.");
         }
         return ExitCodes.Success;
     }

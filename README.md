@@ -67,7 +67,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 795 xUnit tests, with the application layer driven entirely through
+- 🧪 **Tested** — 826 xUnit tests, with the application layer driven entirely through
   fake ports. Core is at ~90% line coverage and App at ~91%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
@@ -214,7 +214,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 795 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 826 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Mutation | `pwsh eng/mutation-test.ps1` | zero surviving mutants (weak tests / dead code flagged) |

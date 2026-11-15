@@ -16,16 +16,18 @@ internal static class CliTopologies
         uint desktopW,
         uint desktopH,
         uint signalW,
-        uint signalH) =>
+        uint signalH,
+        bool active = true,
+        bool withModes = true) =>
         new(
             $@"\\.\DISPLAY{sourceId + 1}",
             sourceId,
             "0001594D:00000000",
             targetId,
             new DisplayTarget(name, "DEL", 0x1234, "HDMI", $@"monitor\{name}", isInternal, true),
-            true,
-            new DisplayMode(desktopW, desktopH, 60),
-            new DisplayMode(signalW, signalH, 60),
+            active,
+            withModes ? new DisplayMode(desktopW, desktopH, 60) : null,
+            withModes ? new DisplayMode(signalW, signalH, 60) : null,
             0, 0, "0", null, null, null, null);
 
     public static DisplayTopology Mirrored() => new(
@@ -41,6 +43,29 @@ internal static class CliTopologies
         {
             Path(0, 1, "Laptop", isInternal: true, 1920, 1080, 1920, 1080),
             Path(1, 2, "DELL", isInternal: false, 1920, 1080, 1920, 1080),
+        },
+        DisplayTopologyId.Extend);
+
+    /// <summary>
+    /// Mirrored with an aspect mismatch (DELL 1920x1200 vs shared 1920x1080), but the
+    /// first active path has no source/target mode — the CLI must render it as 0x0.
+    /// </summary>
+    public static DisplayTopology MirroredWithModelessFirstPath() => new(
+        new[]
+        {
+            Path(0, 1, "Ghost", isInternal: false, 1920, 1080, 1920, 1080, withModes: false),
+            Path(1, 2, "DELL", isInternal: false, 1920, 1080, 1920, 1200),
+            Path(2, 3, "Laptop", isInternal: true, 1920, 1080, 1920, 1080),
+        },
+        DisplayTopologyId.Clone);
+
+    /// <summary>One active display plus two stale (inactive) known targets.</summary>
+    public static DisplayTopology OneActivePlusStale() => new(
+        new[]
+        {
+            Path(0, 1, "Laptop", isInternal: true, 1920, 1080, 1920, 1080),
+            Path(1, 2, "DELL", isInternal: false, 1920, 1080, 1920, 1080, active: false),
+            Path(2, 3, "OldBeamer", isInternal: false, 1280, 720, 1280, 720, active: false),
         },
         DisplayTopologyId.Extend);
 }
@@ -77,11 +102,18 @@ internal sealed class CliDpiController : IDpiController
     public DpiScale? ReadResult { get; set; }
     public bool SetResult { get; set; } = true;
     public List<int> RequestedPercents { get; } = new();
+    public DisplayPath? LastReadPath { get; private set; }
+    public DisplayPath? LastSetPath { get; private set; }
 
-    public DpiScale? Read(DisplayPath path) => ReadResult;
+    public DpiScale? Read(DisplayPath path)
+    {
+        LastReadPath = path;
+        return ReadResult;
+    }
 
     public bool SetPercentageAndVerify(DisplayPath path, int percent, DpiScaleValue? current = null)
     {
+        LastSetPath = path;
         RequestedPercents.Add(percent);
         return SetResult;
     }

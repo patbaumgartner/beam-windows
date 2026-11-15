@@ -33,21 +33,8 @@ public static class Log
         _sink.WriteException(exception, category, ToPairs(data));
     }
 
-    private static IReadOnlyList<KeyValuePair<string, object?>> ToPairs((string Key, object? Value)[] data)
-    {
-        if (data.Length == 0)
-        {
-            return Array.Empty<KeyValuePair<string, object?>>();
-        }
-
-        var pairs = new KeyValuePair<string, object?>[data.Length];
-        for (int i = 0; i < data.Length; i++)
-        {
-            pairs[i] = new KeyValuePair<string, object?>(data[i].Key, data[i].Value);
-        }
-
-        return pairs;
-    }
+    private static IReadOnlyList<KeyValuePair<string, object?>> ToPairs((string Key, object? Value)[] data) =>
+        Array.ConvertAll(data, d => new KeyValuePair<string, object?>(d.Key, d.Value));
 
     private sealed class NullLogSink : ILogSink
     {

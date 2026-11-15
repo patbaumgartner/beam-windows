@@ -390,8 +390,14 @@ internal sealed class MutationRunner
             WorkingDirectory = _repoRoot,
         };
         var proc = Process.Start(psi)!;
+        // Enforce a real timeout: ReadToEnd first would block forever on a hung child,
+        // so wait first, kill the whole tree on timeout, then drain the output.
+        if (!proc.WaitForExit((int)TimeSpan.FromMinutes(3).TotalMilliseconds))
+        {
+            proc.Kill(entireProcessTree: true);
+            proc.WaitForExit();
+        }
         var output = proc.StandardOutput.ReadToEnd() + proc.StandardError.ReadToEnd();
-        proc.WaitForExit((int)TimeSpan.FromMinutes(3).TotalMilliseconds);
         return new BuildResult(proc.ExitCode == 0, output);
     }
 
@@ -411,8 +417,14 @@ internal sealed class MutationRunner
             WorkingDirectory = _repoRoot,
         };
         var proc = Process.Start(psi)!;
+        // A mutant can hang a test (e.g. an infinite loop) — that must count as killed,
+        // not block the whole run. WaitForExit first, kill the tree on timeout, then read.
+        if (!proc.WaitForExit((int)TimeSpan.FromMinutes(5).TotalMilliseconds))
+        {
+            proc.Kill(entireProcessTree: true);
+            proc.WaitForExit();
+        }
         var output = proc.StandardOutput.ReadToEnd() + proc.StandardError.ReadToEnd();
-        proc.WaitForExit((int)TimeSpan.FromMinutes(5).TotalMilliseconds);
         return new TestResult(proc.ExitCode != 0, output);
     }
 }

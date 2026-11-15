@@ -111,9 +111,32 @@ public class CliAppTests
 
         Assert.Equal(ExitCodes.Success, code);
         using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.Equal("0.2.0", doc.RootElement.GetProperty("version").GetString());
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
         Assert.True(doc.RootElement.GetProperty("needsFix").GetBoolean());
         Assert.True(doc.RootElement.GetProperty("mirrored").GetBoolean());
         Assert.Equal(2, doc.RootElement.GetProperty("displays").GetArrayLength());
+        Assert.DoesNotContain('\n', h.Output.TrimEnd('\r', '\n')); // --json stays one compact line
+    }
+
+    [Fact]
+    public void Status_Json_PathWithoutMode_ReportsZeroByZero()
+    {
+        var h = new CliHarness(new DisplayTopology(
+            new[]
+            {
+                CliTopologies.Path(0, 1, "Laptop", isInternal: true, 1920, 1080, 1920, 1080,
+                    withModes: false),
+            },
+            DisplayTopologyId.Extend));
+
+        int code = h.Run("status", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        JsonElement display = doc.RootElement.GetProperty("displays")[0];
+        Assert.Equal("0x0", display.GetProperty("source").GetString());
+        Assert.Equal("0x0", display.GetProperty("signal").GetString());
     }
 
     // ── B6: live tray session block ───────────────────────────────────────────
@@ -201,7 +224,76 @@ public class CliAppTests
 
         Assert.Equal(ExitCodes.Success, code);
         using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
         Assert.Equal(2, doc.RootElement.GetProperty("devices").GetArrayLength());
+    }
+
+    [Fact]
+    public void Help_Json_ReportsSuccessAndCommandList()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+
+        int code = h.Run("help", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("apply", doc.RootElement.GetProperty("commands").EnumerateArray()
+            .Select(c => c.GetString()));
+    }
+
+    [Fact]
+    public void ExitCodes_MatchTheDocumentedContract()
+    {
+        // beam help promises: 0 success, 1 failure, 2 bad arguments, 3 no projector, 4 unsupported.
+        Assert.Equal(0, ExitCodes.Success);
+        Assert.Equal(1, ExitCodes.Failure);
+        Assert.Equal(2, ExitCodes.InvalidArguments);
+        Assert.Equal(3, ExitCodes.NoProjector);
+        Assert.Equal(4, ExitCodes.Unsupported);
+    }
+
+    [Fact]
+    public void Devices_Text_ShowsActiveRows_AndSummarizesInactive()
+    {
+        var h = new CliHarness(CliTopologies.OneActivePlusStale());
+
+        int code = h.Run("devices");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Contains("[active]", h.Output);
+        Assert.Contains("Laptop", h.Output);
+        Assert.DoesNotContain("[inactive]", h.Output);
+        Assert.DoesNotContain("DELL", h.Output); // stale target is summarized, not listed
+        Assert.Contains("2 more known outputs are inactive", h.Output);
+    }
+
+    [Fact]
+    public void Devices_Text_SingularInactive_UsesSingularWording()
+    {
+        var h = new CliHarness(new DisplayTopology(
+            new[]
+            {
+                CliTopologies.Path(0, 1, "Laptop", isInternal: true, 1920, 1080, 1920, 1080),
+                CliTopologies.Path(1, 2, "DELL", isInternal: false, 1920, 1080, 1920, 1080, active: false),
+            },
+            DisplayTopologyId.Extend));
+
+        int code = h.Run("devices");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Contains("1 more known output is inactive", h.Output);
+    }
+
+    [Fact]
+    public void Devices_Text_NoDisplays_SaysSo()
+    {
+        var h = new CliHarness(DisplayTopology.Empty);
+
+        int code = h.Run("devices");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Contains("No displays detected.", h.Output);
     }
 
     // ── apply / restore ────────────────────────────────────────────────────────
@@ -215,6 +307,45 @@ public class CliAppTests
 
         Assert.Equal(ExitCodes.NoProjector, code);
         Assert.Equal(0, h.Mode.ApplyCalls);
+    }
+
+    [Fact]
+    public void Apply_WithoutProjector_Json_ReportsFailure()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+
+        int code = h.Run("apply", "--json");
+
+        Assert.Equal(ExitCodes.NoProjector, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("No projector", doc.RootElement.GetProperty("error").GetString());
+    }
+
+    [Fact]
+    public void Apply_DryRun_Json_ReportsThePlan()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+
+        int code = h.Run("apply", "--dry-run", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("duplicate", doc.RootElement.GetProperty("plan").GetProperty("action").GetString());
+    }
+
+    [Fact]
+    public void Apply_DryRun_Json_PlanRendersModelessPathAsZeroByZero()
+    {
+        var h = new CliHarness(CliTopologies.MirroredWithModelessFirstPath());
+
+        int code = h.Run("apply", "--dry-run", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.Contains(":0x0", doc.RootElement.GetProperty("plan").GetProperty("before").GetString());
     }
 
     [Fact]
@@ -288,6 +419,31 @@ public class CliAppTests
     }
 
     [Fact]
+    public void Restore_Json_ReportsSuccess_WhenNothingFailed()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+
+        int code = h.Run("restore", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+    }
+
+    [Fact]
+    public void Restore_Json_SuccessIsFalse_WhenNightLightRestoreFails()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        h.NightLight.WriteResult = false;
+
+        int code = h.Run("restore", "--nightlight", "--json");
+
+        Assert.Equal(ExitCodes.Success, code); // mode restore itself succeeded
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+    }
+
+    [Fact]
     public void Restore_NightLightFlag_TurnsItOn()
     {
         var h = new CliHarness(CliTopologies.Extended());
@@ -316,7 +472,7 @@ public class CliAppTests
     }
 
     [Fact]
-    public void Restore_WithDpiJournal_RestoresCapturedDpi()
+    public void Restore_WithDpiJournal_RestoresCapturedDpi_OnTheMatchingSource()
     {
         var h = new CliHarness(CliTopologies.Extended());
         h.Journal.Record = new JournalRecord(
@@ -324,12 +480,14 @@ public class CliAppTests
             "cli-apply",
             DateTimeOffset.Now.ToString("o"),
             null,
-            new[] { new JournalDpiEntry("0001594D:00000000", 0, 200) });
+            new[] { new JournalDpiEntry("0001594D:00000000", 1, 200) });
 
         int code = h.Run("restore");
 
         Assert.Equal(ExitCodes.Success, code);
         Assert.Contains(200, h.Dpi.RequestedPercents); // original scale put back
+        Assert.Equal(1u, h.Dpi.LastSetPath?.SourceId); // the journalled source, not just any path
+        Assert.Contains("restored to 200%", h.Output); // verified, not "NOT verified"
         Assert.Contains("DPI:", h.Output);
         Assert.Equal(1, h.Journal.ClearCalls);
     }
@@ -359,6 +517,42 @@ public class CliAppTests
 
         Assert.Equal(ExitCodes.Success, code);
         Assert.Contains("current=200%", h.Output);
+    }
+
+    [Fact]
+    public void DpiRead_Json_ReportsSuccessAndScale()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        h.Dpi.ReadResult = ScaleAt200;
+
+        int code = h.Run("dpi", "read", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Equal(200, doc.RootElement.GetProperty("current").GetInt32());
+    }
+
+    [Fact]
+    public void DpiRead_PrefersTheExternalDisplay_WhenNoDeviceGiven()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored()); // Laptop (internal) + DELL (external)
+        h.Dpi.ReadResult = ScaleAt200;
+
+        int code = h.Run("dpi", "read");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(@"\\.\DISPLAY2", h.Dpi.LastReadPath?.SourceGdiName);
+    }
+
+    [Fact]
+    public void Dpi_WithoutAction_ReturnsInvalidArguments()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+
+        int code = h.Run("dpi");
+
+        Assert.Equal(ExitCodes.InvalidArguments, code);
     }
 
     [Fact]
@@ -448,6 +642,16 @@ public class CliAppTests
         Assert.Equal(ExitCodes.InvalidArguments, code);
     }
 
+    [Fact]
+    public void NightLight_WithoutArgument_ReturnsInvalidArguments()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+
+        int code = h.Run("nightlight");
+
+        Assert.Equal(ExitCodes.InvalidArguments, code);
+    }
+
     // ── Phase A (A1): single-instance lock on mutating commands ─────────────────
 
     [Fact]
@@ -520,6 +724,62 @@ public class CliAppTests
 
         Assert.Equal(ExitCodes.Success, h.Run("dpi", "set", "150"));
         Assert.Equal(1, acquires);
+    }
+
+    [Fact]
+    public void MutatingCommands_AlwaysAcquireTheLock()
+    {
+        foreach (string[] args in new[]
+        {
+            new[] { "apply" },
+            new[] { "restore" },
+            new[] { "nightlight", "off" },
+        })
+        {
+            var h = new CliHarness(CliTopologies.Mirrored());
+            int acquires = 0;
+            h.LockFactory = () =>
+            {
+                acquires++;
+                return new FakeLease(() => { });
+            };
+
+            h.Run(args);
+
+            Assert.Equal(1, acquires);
+        }
+    }
+
+    [Fact]
+    public void DpiSet_WithoutPercent_AcquiresLock_ThenRejectsUsage()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        int acquires = 0;
+        h.LockFactory = () =>
+        {
+            acquires++;
+            return new FakeLease(() => { });
+        };
+
+        int code = h.Run("dpi", "set");
+
+        Assert.Equal(ExitCodes.InvalidArguments, code);
+        Assert.Equal(1, acquires);
+    }
+
+    [Fact]
+    public void LockUnavailable_Json_ReportsSuccessFalse()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.LockFactory = () => null;
+
+        int code = h.Run("apply", "--json");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("single-instance", doc.RootElement.GetProperty("error").GetString());
+        Assert.Equal(0, h.Mode.ApplyCalls);
     }
 
     private sealed class FakeLease : IDisposable

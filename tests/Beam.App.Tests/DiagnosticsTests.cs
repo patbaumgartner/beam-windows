@@ -40,8 +40,20 @@ public class DiagnosticsTests
         Assert.Contains("Beam 0.2.0", summary);
         Assert.Contains("Session state: Active", summary);
         Assert.Contains("enabled=True", summary);
+        Assert.Contains("dpiTarget=auto", summary); // DpiTargetPercent=0 means automatic
         Assert.Contains("Recent events (2/10", summary);
         Assert.Contains("Display mode applied and verified", summary);
+    }
+
+    [Fact]
+    public void Summary_NullDisplayLists_RenderAsZero()
+    {
+        var settings = BeamSettings.Defaults with { IgnoredDisplays = null!, KnownDevices = null };
+
+        string summary = DiagnosticsSummary.Build(
+            "0.2.0", SessionState.Active, isSafeMode: false, settings, new TimelineBuffer(), User, Machine);
+
+        Assert.Contains("ignoredDisplays=0 knownDevices=0", summary);
     }
 
     [Fact]
@@ -105,6 +117,27 @@ public class DiagnosticsTests
             string all = AllText();
             Assert.True(LogSanitizer.IsClean(all, User, Machine), "bundle leaked a secret: " + all);
             Assert.Contains("fix ok", all);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void Exporter_TextEntries_HaveNoUtf8Bom()
+    {
+        string dir = Path.Combine(Path.GetTempPath(), "beam-diag-test-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var exporter = new DiagnosticsBundleExporter();
+            string zipPath = exporter.Export(dir, "summary text", Array.Empty<string>(), null, User);
+
+            using var zip = ZipFile.OpenRead(zipPath);
+            using Stream stream = zip.GetEntry("summary.txt")!.Open();
+            var head = new byte[3];
+            Assert.Equal(3, stream.Read(head, 0, head.Length));
+            Assert.NotEqual(new byte[] { 0xEF, 0xBB, 0xBF }, head); // plain UTF-8, no BOM
         }
         finally
         {

@@ -16,7 +16,7 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   (CDS result=0 at 22:37:56.140, stale verify failure at 22:37:56.389). `PresentationManager`
   now settle-polls the topology (100 ms interval, up to 20 attempts ≈ 2 s) until the trigger
   condition clears, and still fails (and unwinds) when the mismatch is genuinely still present
-  after the window. Test suite: **795 tests** (was 794; App 200).
+  after the window. Test suite: **826 tests** (was 794 at 0.2.0; App 207, Core 312, Cli 92).
 
 ## [0.2.0] — 2026-11-14
 
