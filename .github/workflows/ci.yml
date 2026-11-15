@@ -187,7 +187,20 @@ jobs:
           echo "path=$f" >> "$GITHUB_OUTPUT"
           echo "name=$(basename "$f")" >> "$GITHUB_OUTPUT"
 
-      - name: Create/update snapshot release
+      - name: Delete previous snapshot release and tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # Recreate the tag too so source archives match the uploaded binaries.
+          if gh release view snapshot --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
+            gh release delete snapshot --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+          fi
+          # Recover if a previous run left a tag without a release.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/snapshot" > /dev/null 2>&1; then
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/snapshot"
+          fi
+
+      - name: Create snapshot release
         uses: softprops/action-gh-release@8a0cd651e5b2365bd640854a3fa5dfc70e4875f3 # v3.0.4
         with:
           tag_name: snapshot
@@ -207,7 +220,6 @@ jobs:
             installer/SHA256SUMS.txt
           prerelease: true
           target_commitish: ${{ github.sha }}
-          recreate: true
           make_latest: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
