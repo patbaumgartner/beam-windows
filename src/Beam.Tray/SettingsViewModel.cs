@@ -3,6 +3,7 @@ using System.IO;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
 using Beam.App.Presentation;
+using Beam.Core.Display;
 using Beam.Core.Settings;
 
 namespace Beam.Tray;
@@ -73,6 +74,21 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     // ── Projector mode ───────────────────────────────────────────────────────────
 
     public bool UseMode { get => _pm.UseMode; set { _pm.UseMode = value; Raise(); } }
+
+    /// <summary>Projector topology while presenting: Mirror (duplicate, default) or Extend. Persisted.</summary>
+    public PresentationTopology ProjectorTopology
+    {
+        get => _pm.ProjectorTopology;
+        set { _pm.ProjectorTopology = value; Raise(); Raise(nameof(ProjectorTopologyIndex)); }
+    }
+
+    /// <summary>XAML binding helper: combo index for <see cref="ProjectorTopology"/> (0=Mirror, 1=Extend).</summary>
+    public int ProjectorTopologyIndex
+    {
+        get => ProjectorTopology == PresentationTopology.Extend ? 1 : 0;
+        set => ProjectorTopology = value == 1 ? PresentationTopology.Extend : PresentationTopology.Mirror;
+    }
+
     public bool UseDpi { get => _pm.UseDpi; set { _pm.UseDpi = value; Raise(); } }
     public bool UseNightLight { get => _pm.UseNightLight; set { _pm.UseNightLight = value; Raise(); } }
     public bool RestoreOnDisconnect { get => _pm.RestoreOnDisconnect; set { _pm.RestoreOnDisconnect = value; Raise(); } }
@@ -170,6 +186,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         _pm.DoNotDisturb = d.DoNotDisturb;
         _pm.AudioToHdmi = d.AudioToHdmi;
         _pm.Hotkey = d.Hotkey;
+        _pm.ProjectorTopology = PresentationTopologyExtensions.FromSettingString(d.ProjectorTopology);
         _pm.TimedPauseMinutes = d.TimedPauseMinutes;
         _pm.RestoreOnDisconnect = d.RestoreOnDisconnect;
         _pm.DpiTargetPercent = d.DpiTargetPercent;
@@ -187,6 +204,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Raise(nameof(DoNotDisturb));
         Raise(nameof(AudioToHdmi));
         Raise(nameof(Hotkey));
+        Raise(nameof(ProjectorTopology));
+        Raise(nameof(ProjectorTopologyIndex));
         Raise(nameof(PausePreset));
         Raise(nameof(RestoreOnDisconnect));
         Raise(nameof(DpiTargetPercent));

@@ -55,6 +55,7 @@ public class SettingsStoreTests : IDisposable
             DoNotDisturb = false,
             IgnoredDisplays = new[] { @"monitor\DELL", @"monitor\EPS" },
             Hotkey = "Win+Alt+O",
+            ProjectorTopology = "Extend",
         };
 
         NewStore().Save(settings);
@@ -70,6 +71,31 @@ public class SettingsStoreTests : IDisposable
         Assert.Equal(settings.AudioToHdmi, loaded.AudioToHdmi);
         Assert.Equal(settings.IgnoredDisplays, loaded.IgnoredDisplays); // xunit compares sequences structurally
         Assert.Equal(settings.Hotkey, loaded.Hotkey);
+        Assert.Equal("Extend", loaded.ProjectorTopology);
+    }
+
+    [Fact]
+    public void ProjectorTopology_DefaultsToMirror_WhenKeyMissing()
+    {
+        // A settings file written before this key existed has no ProjectorTopology.
+        Directory.CreateDirectory(_dir);
+        File.WriteAllText(SettingsPath, """{ "Version": 1, "IsEnabled": true }""");
+
+        BeamSettings loaded = NewStore().Load();
+
+        Assert.Equal("Mirror", loaded.ProjectorTopology);
+    }
+
+    [Theory]
+    [InlineData("Extend", "Extend")]
+    [InlineData("Mirror", "Mirror")]
+    [InlineData("mirror", "mirror")]       // stored verbatim; parsed case-insensitively by the reader
+    [InlineData("bogus", "bogus")]         // unknown values round-trip too; the enum reader falls back to Mirror
+    public void ProjectorTopology_RoundTrips(string value, string expected)
+    {
+        NewStore().Save(BeamSettings.Defaults with { ProjectorTopology = value });
+
+        Assert.Equal(expected, NewStore().Load().ProjectorTopology);
     }
 
     [Fact]
@@ -184,5 +210,34 @@ public class SettingsStoreTests : IDisposable
         Assert.Equal(BeamSettings.CurrentVersion, doc.RootElement.GetProperty("Version").GetInt32());
         Assert.Equal(42, doc.RootElement.GetProperty("FutureKey").GetInt32());
         Assert.False(doc.RootElement.GetProperty("UseMode").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Save_ConcurrentWrites_LeaveOneValidFileAndNoTmp()
+    {
+        // Field repro (2026-11-16 16:39:15): a display-change burst plus the startup check
+        // saved twice within 3 ms; both wrote settings.json.tmp and one save was lost with
+        // "file in use by another process". Serialized saves must always end with one valid
+        // file and no tmp left behind.
+        var store = NewStore();
+        store.Save(BeamSettings.Defaults);
+
+        Task[] tasks = Enumerable.Range(0, 8)
+            .Select(t => Task.Run(() =>
+            {
+                for (int i = 0; i < 50; i++)
+                {
+                    store.Save(BeamSettings.Defaults with
+                    {
+                        Hotkey = t % 2 == 0 ? "Win+Alt+P" : "Win+Alt+O",
+                    });
+                }
+            }))
+            .ToArray();
+        await Task.WhenAll(tasks);
+
+        Assert.False(File.Exists(SettingsPath + ".tmp")); // tmp is always renamed away
+        BeamSettings loaded = NewStore().Load(); // must parse — never a half-written file
+        Assert.Contains(loaded.Hotkey, new[] { "Win+Alt+P", "Win+Alt+O" });
     }
 }

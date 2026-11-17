@@ -39,6 +39,11 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
 - 📐 **Best-fit 16:9** — picks the highest supported 16:9 mode the shared source actually
   supports (60 Hz preferred, 30 Hz fallback), with the projector's **native 16:9 mode
   ranked first** (switchable in Settings) instead of hard-coding a resolution.
+- 🖥️➡️🖥️ **Mirror or Extend — your choice** — the *Projector screen* setting (persisted in
+  `settings.json`, default **Mirror**) decides what Beam does when it applies presentation
+  mode: mirror the laptop onto the projector with a shared 16:9 source, or **extend** onto
+  the projector and put the best 16:9 mode on the external display. Extend is the right
+  choice for projectors that cannot mirror cleanly (e.g. video-wall processors).
 - 🔍 **Readable DPI** — scales the shared source to a sane value via the same undocumented
   API the Settings app uses.
 - 🌙 **Night Light awareness** — temporarily disables the *real* Windows Night Light
@@ -49,16 +54,20 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   notification toasts (Do Not Disturb), switch audio to the projector's HDMI output. Each
   is switchable in Settings, and a failing extra never breaks the fix.
 - 🎛️ **Settings window** — enable/hotkey, pause preset (15 min / 1 h / indefinite),
-  projector-mode policy (prefer native 16:9, fixed DPI target, Night Light, restore on
-  disconnect), extras, a known-devices table (auto-apply / ignore / forget), and advanced
-  options (export settings, open log folder, safe-mode indicator + reset).
+  projector-mode policy (projector screen Mirror/Extend, prefer native 16:9, fixed DPI
+  target, Night Light, restore on disconnect), extras, a known-devices table (auto-apply /
+  ignore / forget), and advanced options (export settings, open log folder, safe-mode
+  indicator + reset). The **hotkey defaults to Win+Alt+P**; `Win+P` is rejected in any
+  spelling because it belongs to Windows' own projector flyout and is never registered by
+  Beam.
 - 🧯 **Diagnostics window** — live 200-event timeline, a copyable summary, and a sanitized
   export bundle (no machine/user names) to attach to a bug report, plus re-evaluate-now and
   safe-mode reset.
 - 🖱️ **Responsive tray menu** — rich status header, Pause/Resume plus **Pause for 15 min /
   1 h**, **Launch at sign-in**, **Settings…**, **Diagnostics…**, *Apply projector mode now*
-  (with the global-hotkey hint), *Undo projector mode* (one-click revert while presenting),
-  *Open log folder*.
+  (with the global-hotkey hint; with **no monitor connected it simulates presentation mode**
+  instead of failing — Night Light off, DPI applied, extras on, stays Active until Undo),
+  *Undo projector mode* (one-click revert while presenting), *Open log folder*.
 - 💠 **High-beam icon** — the tray icon and the `Beam.exe` icon are the scalable SVG in
   Pantone 638C over a deep halo, rasterised by `installer/generate-icon.ps1`; rendered
   crisp at any size and readable on light and dark taskbars (icon by I Create Stuff,
@@ -67,7 +76,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 826 xUnit tests, with the application layer driven entirely through
+- 🧪 **Tested** — 869 xUnit tests, with the application layer driven entirely through
   fake ports. Core is at ~90% line coverage and App at ~91%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
@@ -115,7 +124,7 @@ The suite runs on any Windows machine with the SDK; no projector is required. Se
 | **Launch at sign-in** | Add/remove Beam from Windows startup (HKCU Run key) |
 | **Settings…** | Opens the settings window (general, projector mode, extras, devices, advanced) |
 | **Diagnostics…** | Live event timeline, copy summary, sanitized export bundle, re-evaluate now, reset safe mode |
-| **Apply projector mode now** | Manually run the fix (shows the global-hotkey hint); enabled only while idle |
+| **Apply projector mode now** | Manually run the fix (shows the global-hotkey hint); enabled only while idle. With no external monitor connected it **simulates** presentation mode (Night Light off, DPI applied, extras on) and stays Active until Undo |
 | **Undo projector mode** | One-click revert of an active fix (mode + DPI + Night Light + extras); enabled only while presenting |
 | **Open log folder** | Opens `%LOCALAPPDATA%\Beam` with `beam.log` / `beam-detailed.jsonl` |
 | **Exit Beam** | Quit |
@@ -132,6 +141,9 @@ beam nightlight <on|off> [--json]
 ```
 
 Exit codes: `0` success · `1` failure · `2` bad arguments · `3` no projector · `4` unsupported.
+(The tray/hotkey "Apply projector mode now" simulates presentation mode when no projector is
+connected, but `beam apply` keeps its script-friendly contract and still exits `3` — scripts
+can rely on it.)
 
 ```powershell
 beam status --json
@@ -144,9 +156,10 @@ beam restore
 1. **Detection** — `DisplayInventory` queries `QueryDisplayConfig`. Duplicate mode is
    detected from `currentTopologyId` (`DISPLAYCONFIG_TOPOLOGY_CLONE`), the canonical signal
    on Windows 11 (see [UC-07](docs/02-use-cases/UC-07-restore-on-disconnect.md)).
-2. **Fix** — `DisplayModeController` enters clone mode, then scans
-   `EnumDisplaySettingsEx` for the best supported 16:9 mode. `DpiController` reads and
-   sets the source's DPI scale (`DisplayConfigGetDeviceInfo(-3/-4)`).
+2. **Fix** — `DisplayModeController` enters the topology chosen by the *Projector screen*
+   setting (clone/mirror by default, extend via `SDC_TOPOLOGY_EXTEND` when set to Extend),
+   then scans `EnumDisplaySettingsEx` for the best supported 16:9 mode. `DpiController`
+   reads and sets the source's DPI scale (`DisplayConfigGetDeviceInfo(-3/-4)`).
 3. **Night Light** — `NightLightController` writes the user's CloudStore state blob for the
    real Settings toggle, and re-reads it to verify.
 4. **Rollback** — on disconnect (or manual restore), `SetDisplayConfig` restores the
@@ -214,7 +227,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 826 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 869 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Mutation | `pwsh eng/mutation-test.ps1` | zero surviving mutants (weak tests / dead code flagged) |
@@ -230,6 +243,10 @@ Phase 0–5 milestones are tracked in [docs/05-delivery/roadmap.md](docs/05-deli
 Current status: **0.2.0 "Presenter Edition" shipped 2026-11-14** — tray, CLI, installer +
 CI, settings & diagnostics windows, presentation extras; releases (installer + portable
 zip + SHA256SUMS) published from GitHub Actions, unsigned by decision (ADR-0016).
+**Unreleased (post-0.2.0):** Mirror/Extend projector-screen setting, simulated presentation
+mode for manual apply without a projector, `Win+P` reserved for Windows (hotkey defaults to
+`Win+Alt+P` and `Win+P` is rejected), and a fix for concurrent settings saves colliding on
+`settings.json.tmp` — see [CHANGELOG.md](CHANGELOG.md) §Unreleased (869 tests, 0 failed).
 Hardware verification runs are tracked in
 [docs/05-delivery/hardware-matrix.md](docs/05-delivery/hardware-matrix.md). The long-term
 goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).

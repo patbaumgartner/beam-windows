@@ -8,6 +8,13 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
 
 ## [Unreleased]
 
+### Added
+- **Extend-to-projector option** — a new persistent setting (`ProjectorTopology` in `%LOCALAPPDATA%\Beam\settings.json`, shown as "Projector screen" in Settings) chooses between **Mirror** (default) and **Extend** when Beam applies presentation mode; unknown or missing values fall back to Mirror. Extend is applied via `SetDisplayConfig` with `SDC_TOPOLOGY_EXTEND`, putting the best 16:9 mode on the first connected external display.
+- **Simulated presentation mode for manual apply** — clicking "Apply projector mode now" in the tray (or pressing the hotkey) with no external monitor connected no longer fails and restores immediately; Beam now simulates presentation mode (stays Active: Night Light off, DPI applied, presentation extras on), and undo restores the previous state. Automatic triggers on display changes are unchanged and still require a real projector.
+
+### Changed
+- **Win+P stays with Windows** — the projector flyout is Windows' own shortcut, so Beam never registers it: `Win+P` (any casing/modifier spelling of just the Windows key + P) is rejected as a configurable Beam hotkey and falls back to the default **Win+Alt+P**.
+
 ### Fixed
 - **Verify-after-mode no longer reads a stale topology** ([issue #1](https://github.com/patbaumgartner/beam-windows/issues/1)).
   `ChangeDisplaySettingsEx` returns before Windows has re-enumerated the display paths, so the
@@ -17,6 +24,16 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   now settle-polls the topology (100 ms interval, up to 20 attempts ≈ 2 s) until the trigger
   condition clears, and still fails (and unwinds) when the mismatch is genuinely still present
   after the window. Test suite: **826 tests** (was 794 at 0.2.0; App 207, Core 312, Cli 92).
+- **Settings saves no longer race** — observed live on 2026-11-16 at 16:39:15: a projector
+  connect-burst made the display-change handler and the startup check both record the same
+  external display 3 ms apart, and both `Save` calls wrote the same `settings.json.tmp`, so one
+  save was lost with "file in use by another process". `SettingsStore.Save` is now serialized
+  (lock around tmp-write + rename), and the known-devices check-then-act in
+  `PresentationManager` (`RecordKnownDevices` / `SetDeviceAutoApply` / `ForgetDevice`) is guarded
+  by a lock, so a device is recorded exactly once per connect burst.
+
+Test suite: **869 tests, 0 failed** (Architecture 11, Core 332, Cli 92, Windows 62, App 227,
+Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14
 

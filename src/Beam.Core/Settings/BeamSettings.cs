@@ -1,3 +1,5 @@
+using Beam.Core.Display;
+
 namespace Beam.Core.Settings;
 
 /// <summary>
@@ -24,6 +26,10 @@ namespace Beam.Core.Settings;
 /// <param name="PreferNativeMode">C1/B2: rank the EDID-native 16:9 mode first (default on).</param>
 /// <param name="KnownDevices">C1: displays seen before, for the Devices table (auto-apply / ignore / forget).</param>
 /// <param name="FirstRunToastShown">C3: whether the first-run toast was already shown (shown once per install).</param>
+/// <param name="ProjectorTopology">
+/// What to do with the projector while presenting: "Mirror" (duplicate, default) or
+/// "Extend" (projector as a second screen). See <see cref="PresentationTopologyExtensions"/>.
+/// </param>
 public sealed record BeamSettings(
     int Version,
     bool IsEnabled,
@@ -40,7 +46,8 @@ public sealed record BeamSettings(
     int DpiTargetPercent = 0,
     bool PreferNativeMode = true,
     IReadOnlyList<DeviceProfile>? KnownDevices = null,
-    bool FirstRunToastShown = false)
+    bool FirstRunToastShown = false,
+    string ProjectorTopology = PresentationTopologyExtensions.MirrorSetting)
 {
     /// <summary>
     /// Schema version written by this build. Bump on any breaking change. C1 fields are
@@ -66,7 +73,8 @@ public sealed record BeamSettings(
         DpiTargetPercent: 0,
         PreferNativeMode: true,
         KnownDevices: Array.Empty<DeviceProfile>(),
-        FirstRunToastShown: false);
+        FirstRunToastShown: false,
+        ProjectorTopology: PresentationTopologyExtensions.MirrorSetting);
 }
 
 /// <summary>

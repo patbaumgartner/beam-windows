@@ -68,6 +68,14 @@ internal static class Topologies
         },
         DisplayTopologyId.Extend);
 
+    /// <summary>Internal panel only — no external display connected (simulated presentation).</summary>
+    public static DisplayTopology InternalOnly() => new(
+        new[]
+        {
+            Path(0, 1, "Laptop", isInternal: true, active: true, 1920, 1080, 1920, 1080),
+        },
+        DisplayTopologyId.Internal);
+
     public static ConnectionSnapshot Snapshot(int displayCount) =>
         new(
             Enumerable.Range(0, displayCount)
@@ -112,7 +120,11 @@ internal sealed class FakeModeController : IDisplayModeController
     public string? ApplyResult { get; set; }
     public string? RestoreResult { get; set; }
     public int ApplyCalls { get; private set; }
+    public int ExtendCalls { get; private set; }
     public int RestoreCalls { get; private set; }
+
+    /// <summary>Which topology the last apply used (null when no apply ran yet).</summary>
+    public PresentationTopology? LastTopology { get; private set; }
 
     /// <summary>Hook run after a successful apply; tests use it to flip the fake topology.</summary>
     public Action? OnApply { get; set; }
@@ -127,6 +139,21 @@ internal sealed class FakeModeController : IDisplayModeController
     {
         BeforeCall?.Invoke();
         ApplyCalls++;
+        LastTopology = PresentationTopology.Mirror;
+        LastPreferNative = preferNative;
+        if (ApplyResult is null)
+        {
+            OnApply?.Invoke();
+        }
+
+        return ApplyResult;
+    }
+
+    public string? ApplyExtendWith16x9(bool preferNative = true)
+    {
+        BeforeCall?.Invoke();
+        ExtendCalls++;
+        LastTopology = PresentationTopology.Extend;
         LastPreferNative = preferNative;
         if (ApplyResult is null)
         {

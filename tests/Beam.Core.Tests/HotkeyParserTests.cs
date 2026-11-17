@@ -10,7 +10,6 @@ public class HotkeyParserTests
     [InlineData("win+alt+p", HotkeyModifiers.Win | HotkeyModifiers.Alt, 0x50u)]       // case-insensitive
     [InlineData("Alt+Win+P", HotkeyModifiers.Win | HotkeyModifiers.Alt, 0x50u)]       // order-independent
     [InlineData("Ctrl+Shift+F5", HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x74u)]
-    [InlineData("Windows+P", HotkeyModifiers.Win, 0x50u)]                             // alias
     [InlineData("Super+Space", HotkeyModifiers.Win, 0x20u)]
     [InlineData("Ctrl+Enter", HotkeyModifiers.Control, 0x0Du)]
     [InlineData("Alt+1", HotkeyModifiers.Alt, 0x31u)]
@@ -35,6 +34,11 @@ public class HotkeyParserTests
     [InlineData("Win+Banana")]   // unknown key
     [InlineData("Foo+P")]        // unknown modifier
     [InlineData("Win+Alt+F99")]  // out-of-range F-key
+    [InlineData("Win+P")]        // reserved by Windows (projector flyout) — never registered by Beam
+    [InlineData("win+p")]        // reserved, case-insensitive
+    [InlineData("Super+P")]      // reserved alias
+    [InlineData("Windows+P")]    // reserved alias
+    [InlineData("Logo+P")]       // reserved alias
     public void TryParse_InvalidCombos_ReturnFalse(string? text)
     {
         bool ok = HotkeyParser.TryParse(text, out HotkeyCombo? combo);
@@ -63,6 +67,28 @@ public class HotkeyParserTests
         Assert.True(HotkeyParser.TryParse(Beam.Core.Settings.BeamSettings.Defaults.Hotkey, out HotkeyCombo? combo));
 
         Assert.Equal("Win+Alt+P", combo!.DisplayString);
+    }
+
+    [Fact]
+    public void IsReservedByWindows_OnlyWinAloneWithP()
+    {
+        Assert.True(HotkeyParser.IsReservedByWindows(new HotkeyCombo(HotkeyModifiers.Win, HotkeyParser.VkP)));
+        Assert.False(HotkeyParser.IsReservedByWindows(new HotkeyCombo(HotkeyModifiers.Win | HotkeyModifiers.Alt, HotkeyParser.VkP)));
+        Assert.False(HotkeyParser.IsReservedByWindows(new HotkeyCombo(HotkeyModifiers.Win | HotkeyModifiers.Shift, HotkeyParser.VkP)));
+        Assert.False(HotkeyParser.IsReservedByWindows(new HotkeyCombo(HotkeyModifiers.Win, 0x51u))); // Win+Q is fine
+    }
+
+    [Theory]
+    [InlineData("Win+P")]
+    [InlineData("Win+Alt+P")] // Beam's default alternative must stay valid
+    [InlineData("Ctrl+Win+P")]
+    public void TryParse_ReservedCheck_MatchesExpected(string text)
+    {
+        bool ok = HotkeyParser.TryParse(text, out HotkeyCombo? combo);
+        bool reserved = combo is not null && HotkeyParser.IsReservedByWindows(combo);
+
+        Assert.Equal(text == "Win+P", !ok); // exactly Win+P is rejected
+        Assert.Equal(text == "Win+P", reserved || !ok);
     }
 
     [Theory]

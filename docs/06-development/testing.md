@@ -7,14 +7,15 @@ Beam's test suite is split along the same lines as the production code. The rule
 
 | Project | Targets | What it covers |
 |---|---|---|
-| `tests/Beam.Core.Tests` | `net10.0` | Aspect classification, trigger, topology model, DPI ladder/planner, Night Light codec, startup command, percentiles |
-| `tests/Beam.App.Tests` | `net10.0` | Session state machine, presentation sequencing, journal, file log sink — all through fake ports |
-| `tests/Beam.Windows.Tests` | `net10.0-windows` | 16:9 mode ranking, LUID/rational helpers, DEVMODE construction, display-monitor polling contract + stress |
+| `tests/Beam.Core.Tests` | `net10.0` | Aspect classification, trigger, topology model, DPI ladder/planner, Night Light codec, startup command, percentiles, hotkey parsing incl. the reserved `Win+P`, `PresentationTopology` parsing |
+| `tests/Beam.App.Tests` | `net10.0` | Session state machine, presentation sequencing (mirror/extend, simulated presentation), journal, file log sink, settings store incl. concurrent saves — all through fake ports |
+| `tests/Beam.Windows.Tests` | `net10.0-windows` | 16:9 mode ranking, extend-path selection, LUID/rational helpers, DEVMODE construction, display-monitor polling contract + stress |
 | `tests/Beam.Cli.Tests` | `net10.0-windows` | Argument parsing, every command, exit codes, JSON shape |
-| `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, brand-icon colours, concurrency stress |
+| `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, brand-icon colours, concurrency stress, projector-screen UI |
 | `tests/Beam.Architecture.Tests` | `net10.0` | Project-reference and portability rules from [architecture.md](architecture.md), composition-root binary-name collision guard |
 
-Current totals: **574 tests**. Run them with:
+Current totals: **869 tests** (Architecture 11, Core 332, Cli 92, Windows 62, App 227,
+Tray 145). Run them with:
 
 ```powershell
 dotnet test Beam.sln -c Release

@@ -18,6 +18,7 @@ public class PresentationErrorInjectionTests
     private sealed class ThrowingModeController : IDisplayModeController
     {
         public string? ApplyCloneWith16x9(bool preferNative = true) => throw new InvalidOperationException("mode boom");
+        public string? ApplyExtendWith16x9(bool preferNative = true) => throw new InvalidOperationException("mode boom");
         public string? Restore() => throw new InvalidOperationException("mode restore boom");
     }
 

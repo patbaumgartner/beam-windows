@@ -236,4 +236,107 @@ public class PresentationOrchestrationTests
 
         Assert.Equal(0, h.Mode.RestoreCalls);
     }
+
+    [Fact]
+    public async Task ApplyNow_DefaultTopology_UsesClone_MirrorStaysDefault()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+
+        await h.Manager.ApplyNowAsync();
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(1, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Mode.ExtendCalls);
+        Assert.Equal(PresentationTopology.Mirror, h.Mode.LastTopology);
+    }
+
+    [Fact]
+    public async Task ApplyNow_WithExtendSetting_UsesExtend_NotClone()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        h.Manager.ProjectorTopology = PresentationTopology.Extend;
+
+        await h.Manager.ApplyNowAsync();
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(1, h.Mode.ExtendCalls);
+        Assert.Equal(0, h.Mode.ApplyCalls); // clone never used
+        Assert.Equal(PresentationTopology.Extend, h.Mode.LastTopology);
+        Assert.True(h.Mode.LastPreferNative); // C1 prefer-native policy passed through
+    }
+
+    [Fact]
+    public async Task AutoTrigger_WithExtendSetting_UsesExtend()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        h.Manager.ProjectorTopology = PresentationTopology.Extend;
+
+        await h.Manager.CheckCurrentStateAsync(); // startup check = automatic path
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(1, h.Mode.ExtendCalls);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+    }
+
+    [Fact]
+    public async Task ApplyNow_NoExternalDisplay_SimulatesPresentation_AndStaysActive()
+    {
+        using var h = new PresentationHarness(Topologies.InternalOnly(), ScaleAt200);
+
+        await h.Manager.ApplyNowAsync();
+
+        // No projector/monitor connected: the display-mode step is skipped (a
+        // clone/extend would fail and unwind), but Night Light, DPI and the extras
+        // still apply and the session stays Active instead of switching back.
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Mode.ExtendCalls);
+        Assert.Null(h.Mode.LastTopology);
+        Assert.Equal(1, h.NightLight.SetActiveCalls);
+        Assert.False(h.NightLight.LastActive);               // Night Light off
+        Assert.Equal(new[] { 100 }, h.Dpi.RequestedPercents); // DPI still applied
+        Assert.Equal(1, h.KeepAwake.HoldCalls);               // extras held
+        Assert.Contains(false, h.Dnd.Requested);              // toasts silenced
+        Assert.Equal(1, h.Journal.BeginCalls);
+        Assert.Equal(0, h.Mode.RestoreCalls);                 // did NOT switch back
+        Assert.False(h.Manager.IsSafeMode);
+    }
+
+    [Fact]
+    public async Task SimulatedPresentation_RestoreNow_UndoesEverything_AndReturnsToIdle()
+    {
+        using var h = new PresentationHarness(Topologies.InternalOnly(), ScaleAt200);
+        h.NightLight.Snapshots = new[] { Snapshot() };
+        await h.Manager.ApplyNowAsync();
+        Assert.Equal(SessionState.Active, h.Session.State);
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(1, h.NightLight.RestoreCalls); // Night Light restored
+        Assert.Equal(1, h.KeepAwake.ReleaseCalls);
+        Assert.Contains(true, h.Dnd.Requested);     // toasts re-enabled
+        Assert.Equal(1, h.Journal.ClearCalls);
+    }
+
+    [Fact]
+    public async Task AutoPaths_DoNotSimulate_WhenNoExternalDisplay()
+    {
+        // Only a manual "Apply projector mode" simulates; the automatic paths
+        // (startup check, display-change trigger) must not present with a single display.
+        using var h = new PresentationHarness(Topologies.InternalOnly(), ScaleAt200);
+
+        await h.Manager.CheckCurrentStateAsync();
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Mode.ExtendCalls);
+
+        h.Changes.Raise(Topologies.Snapshot(1), Topologies.Snapshot(1));
+        await h.Manager.PendingTask;
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Mode.ExtendCalls);
+        Assert.Equal(0, h.NightLight.SetActiveCalls);
+    }
 }

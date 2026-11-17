@@ -19,6 +19,8 @@
 | **Output technology** | How a target is connected (HDMI, DisplayPort, internal, Miracast, ...) |
 | **Presentation state** | The bundle Beam applies: mode + refresh + scale + Night Light (+ extras) |
 | **Projector** | A display classified as a projector by Beam's heuristic or by the user |
+| **Projector screen (Mirror/Extend)** | The persisted `ProjectorTopology` setting deciding which topology Beam applies on connect: mirror with a shared 16:9 source, or extend with a 16:9 mode on the external display |
+| **Simulated presentation mode** | Manual apply with no external display: the display-mode step is skipped, Night Light/DPI/extras still apply, session stays Active until Undo |
 | **Safe mode** | State after repeated failures: no automatic mutations until reset |
 | **Session** | The period between projector activation and deactivation, with one journal |
 | **Stable id** | Device path without the class GUID; unique per device + port, stable across reboots |

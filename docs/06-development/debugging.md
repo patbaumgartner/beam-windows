@@ -57,6 +57,9 @@ real one.
 | Restore ran but Night Light is still off | Restore failed or the journal is stale | Check `beam-detailed.jsonl` for the Night Light write error |
 | Display not restored after a crash | Journal was cleared before a *verified* restore | Check journal presence; the journal survives until restore completes |
 | No trigger fired with a projector attached | Extended mode, matching aspects, or paused | `beam status --json`: `mirrored`, `aspectMismatch`, `needsFix` |
+| Apply unwinds with "verify-after-mode failed" right after a successful apply (`CDS` result 0) | Projector cannot mirror the laptop's aspect — the mismatch is real, not stale (settle-polling already covers the stale-read case, issue #1) | Set **Projector screen = Extend** in Settings (`ProjectorTopology` in `settings.json`); in `beam-detailed.jsonl` check `win32Error`/`CDS` results vs. the post-apply `topologyId`/`hasMismatch` |
+| "Apply projector mode now" fails with `win32Error=31` and restores immediately | No external display connected — old builds failed here | Fixed 2026-11-17: manual apply now simulates presentation mode and stays Active; CLI `beam apply` still exits `3` |
+| "Settings save failed — settings.json.tmp ... being used by another process" | Concurrent saves racing on the tmp file (connect burst) | Fixed 2026-11-17: saves are serialized; only seen on builds before that date |
 | CLI returns 4 | Feature unsupported by this display/Windows | Expected on adapters that cannot report the needed values |
 
 ## 4. Reproducing the sticky-cursor bug

@@ -90,6 +90,12 @@ internal sealed class CliModeController : IDisplayModeController
         return ApplyResult;
     }
 
+    public string? ApplyExtendWith16x9(bool preferNative = true)
+    {
+        ApplyCalls++;
+        return ApplyResult;
+    }
+
     public string? Restore()
     {
         RestoreCalls++;

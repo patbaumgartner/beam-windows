@@ -24,9 +24,13 @@ clear, small settings surface.
 - Enable Beam (on/off)
 - Start with Windows (on/off; per-user startup task)
 - Pause (until time)
+- Global hotkey (default `Win+Alt+P`; `Win+P` is rejected in any spelling — it stays with
+  Windows' projector flyout)
 - Language (system default)
 
 **Projector mode**
+- Projector screen: **Mirror** (default) / **Extend** — persisted as `ProjectorTopology` in
+  `%LOCALAPPDATA%\Beam\settings.json`; unknown/missing values fall back to Mirror
 - Apply mode on connect (on) / policy: MatchHeight · Native16x9 · Fixed · Highest16x9
 - Fixed mode picker (only modes common to detected projectors, or a manual w/h)
 - Refresh preference: Auto (60) · Highest · Native

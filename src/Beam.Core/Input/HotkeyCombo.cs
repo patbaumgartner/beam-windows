@@ -117,8 +117,28 @@ public static class HotkeyParser
         }
 
         combo = new HotkeyCombo(modifiers, vk);
+        if (IsReservedByWindows(combo))
+        {
+            // Win+P is Windows' own projector shortcut (the Win+P flyout) — it stays
+            // with Windows. Beam must never register it; use an alternative such as
+            // the default Win+Alt+P instead.
+            combo = null;
+            return false;
+        }
+
         return true;
     }
+
+    /// <summary>Virtual-key code of P — the key of Windows' own projector shortcut.</summary>
+    public const uint VkP = 0x50;
+
+    /// <summary>
+    /// True when the combo is one Windows owns itself: <c>Win+P</c> opens the projector
+    /// flyout (connect to a wireless display), so Beam rejects it at parse time and
+    /// never registers it. <c>Win+Alt+P</c> (the default) is Beam's alternative.
+    /// </summary>
+    public static bool IsReservedByWindows(HotkeyCombo combo) =>
+        combo.Modifiers == HotkeyModifiers.Win && combo.VirtualKey == VkP;
 
     /// <summary>Parses a single key token (letter, digit, F-key, or named key) to a virtual-key code.</summary>
     public static bool TryParseKey(string token, out uint virtualKey)

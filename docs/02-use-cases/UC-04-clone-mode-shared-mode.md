@@ -8,6 +8,12 @@ one source. A 16:10 laptop panel therefore sends a 16:10 image to a 16:9 project
 the projector shows black bars on the left and right. Beam must switch the shared source
 to a 16:9 mode and to a scale that keeps the desktop readable, then restore both.
 
+> **Current behavior (2026-11-17):** the applied topology is the persisted *Projector
+> screen* setting (`ProjectorTopology` in `settings.json`): **Mirror** (default, this UC)
+> or **Extend** (`SDC_TOPOLOGY_EXTEND` + best 16:9 mode on the first external path), for
+> projectors that cannot mirror the laptop's aspect (e.g. video-wall processors), where a
+> mirrored apply can never clear the mismatch trigger and would unwind.
+
 ## Why the laptop must change
 In clone mode there is exactly one source mode. The projector cannot show 3840x2400;
 Windows picks a shared mode. If the laptop stays at 16:10, the projector pillarboxes.

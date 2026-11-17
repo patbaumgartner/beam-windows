@@ -68,6 +68,27 @@ public class PresentationStressTests
         }
     }
 
+    /// <summary>
+    /// Drains pending work and waits for transient session states to settle.
+    /// <see cref="PresentationManager.PendingTask"/> only tracks the most recently
+    /// started task, so an earlier fix can still be queued on the serialization gate
+    /// when the last task completes — poll until the state leaves
+    /// Detecting/Applying/Restoring (bounded to ~10 s).
+    /// </summary>
+    private static async Task SettleAsync(PresentationHarness h)
+    {
+        for (int i = 0; i < 400; i++)
+        {
+            await DrainAsync(h.Manager);
+            if (h.Session.State is not (SessionState.Detecting or SessionState.Applying or SessionState.Restoring))
+            {
+                return;
+            }
+
+            await Task.Delay(25);
+        }
+    }
+
     private static void AssertChain(IEnumerable<SessionEvent> events)
     {
         SessionEvent? previous = null;
@@ -140,12 +161,12 @@ public class PresentationStressTests
             }
         });
 
-        await DrainAsync(h.Manager);
+        await SettleAsync(h);
 
         if (h.Session.State == SessionState.Active)
         {
             await h.Manager.RestoreNowAsync();
-            await DrainAsync(h.Manager);
+            await SettleAsync(h);
         }
 
         Assert.Equal(SessionState.Idle, h.Session.State);

@@ -3,6 +3,7 @@ using Beam.App.Journal;
 using Beam.App.Sessions;
 using Beam.Core.Diagnostics;
 using Beam.Core.Display;
+using Beam.Core.Input;
 using Beam.Core.NightLight;
 using Beam.Core.Ports;
 using Beam.Core.Settings;
@@ -101,6 +102,7 @@ public sealed class PresentationManager : IDisposable
     private bool _doNotDisturb = true;
     private bool _audioToHdmi = true;
     private string _hotkey = BeamSettings.Defaults.Hotkey;
+    private PresentationTopology _projectorTopology = PresentationTopology.Mirror;
 
     // C1 settings window fields: pause preset, restore-on-disconnect, DPI target,
     // prefer-native ranking, known devices, first-run toast flag.
@@ -109,6 +111,13 @@ public sealed class PresentationManager : IDisposable
     private int _dpiTargetPercent; // 0 = automatic
     private bool _preferNativeMode = true;
     private volatile IReadOnlyList<DeviceProfile> _knownDevices = Array.Empty<DeviceProfile>();
+
+    /// <summary>Guards the check-then-act mutation of <see cref="_knownDevices"/>.
+    /// QueryTopology runs on the display-change handler, the startup check and the tray UI
+    /// thread at the same time; without this lock a connect-burst records the same projector
+    /// twice (seen in the 2026-11-16 log: two "New external display recorded" 3 ms apart)
+    /// and each recorder fires its own settings save.</summary>
+    private readonly object _devicesLock = new();
     private bool _firstRunToastShown;
     private Timer? _pauseTimer;
     private DateTimeOffset _pauseUntilUtc = DateTimeOffset.MinValue;
@@ -193,13 +202,39 @@ public sealed class PresentationManager : IDisposable
         }
     }
 
-    /// <summary>B7: global hotkey combo string, e.g. "Win+Alt+P". Persisted (B4).</summary>
+    /// <summary>
+    /// B7: global hotkey combo string, e.g. "Win+Alt+P". Persisted (B4). Win+P is reserved
+    /// by Windows (the projector flyout) and never accepted — an unparsable or reserved
+    /// value falls back to the default Win+Alt+P, so Beam can never hijack Win+P.
+    /// </summary>
     public string Hotkey
     {
         get => _hotkey;
         set
         {
-            _hotkey = string.IsNullOrWhiteSpace(value) ? BeamSettings.Defaults.Hotkey : value;
+            _hotkey = SanitizeHotkey(value);
+            PersistSettings();
+        }
+    }
+
+    /// <summary>Returns the combo when it is parseable and not reserved by Windows; otherwise the default.</summary>
+    private static string SanitizeHotkey(string? value) =>
+        HotkeyParser.TryParse(value, out HotkeyCombo? combo) && combo is not null
+            ? value!
+            : BeamSettings.Defaults.Hotkey;
+
+    /// <summary>
+    /// What to do with the projector while presenting: <see cref="PresentationTopology.Mirror"/>
+    /// (duplicate — the default, matching Win+P → Duplicate) or
+    /// <see cref="PresentationTopology.Extend"/> (the projector becomes a second screen).
+    /// Persisted (B4) as the <c>ProjectorTopology</c> setting ("Mirror" / "Extend").
+    /// </summary>
+    public PresentationTopology ProjectorTopology
+    {
+        get => _projectorTopology;
+        set
+        {
+            _projectorTopology = value;
             PersistSettings();
         }
     }
@@ -273,6 +308,7 @@ public sealed class PresentationManager : IDisposable
         AudioToHdmi = _audioToHdmi,
         IgnoredDisplays = _ignoredDisplays.ToList(),
         Hotkey = _hotkey,
+        ProjectorTopology = _projectorTopology.ToSettingString(),
         TimedPauseMinutes = _timedPauseMinutes,
         RestoreOnDisconnect = _restoreOnDisconnect,
         DpiTargetPercent = _dpiTargetPercent,
@@ -366,7 +402,8 @@ public sealed class PresentationManager : IDisposable
             _keepAwake = loaded.KeepAwake;
             _doNotDisturb = loaded.DoNotDisturb;
             _audioToHdmi = loaded.AudioToHdmi;
-            _hotkey = string.IsNullOrWhiteSpace(loaded.Hotkey) ? BeamSettings.Defaults.Hotkey : loaded.Hotkey;
+            _hotkey = SanitizeHotkey(loaded.Hotkey);
+            _projectorTopology = PresentationTopologyExtensions.FromSettingString(loaded.ProjectorTopology);
             _ignoredDisplays = (loaded.IgnoredDisplays ?? Array.Empty<string>()).ToList();
             _timedPauseMinutes = loaded.TimedPauseMinutes;
             _restoreOnDisconnect = loaded.RestoreOnDisconnect;
@@ -384,7 +421,8 @@ public sealed class PresentationManager : IDisposable
                 ("doNotDisturb", _doNotDisturb.ToString()),
                 ("audioToHdmi", _audioToHdmi.ToString()),
                 ("ignoredCount", _ignoredDisplays.Count.ToString()),
-                ("hotkey", _hotkey));
+                ("hotkey", _hotkey),
+                ("projectorTopology", _projectorTopology.ToSettingString()));
         }
 
         _changes.Changed += OnDisplayChanged;
@@ -551,31 +589,42 @@ public sealed class PresentationManager : IDisposable
     /// </summary>
     private void RecordKnownDevices(DisplayTopology topology)
     {
-        List<DeviceProfile> devices = _knownDevices.ToList();
-        bool changed = false;
-        foreach (DisplayPath p in topology.ActivePaths)
+        List<DeviceProfile>? recorded = null;
+        lock (_devicesLock)
         {
-            if (p.Target.IsInternal)
+            List<DeviceProfile> devices = _knownDevices.ToList();
+            bool changed = false;
+            foreach (DisplayPath p in topology.ActivePaths)
             {
-                continue;
+                if (p.Target.IsInternal)
+                {
+                    continue;
+                }
+
+                string identity = p.Target.Identity;
+                if (devices.Any(d => string.Equals(d.Identity, identity, StringComparison.Ordinal)))
+                {
+                    continue;
+                }
+
+                devices.Add(new DeviceProfile(identity, p.Target.FriendlyName, AutoApply: true, _clock().ToString("o")));
+                changed = true;
+                Log.Info("New external display recorded in known devices", "Settings",
+                    ("identity", identity), ("name", p.Target.FriendlyName));
             }
 
-            string identity = p.Target.Identity;
-            if (devices.Any(d => string.Equals(d.Identity, identity, StringComparison.Ordinal)))
+            if (changed)
             {
-                continue;
+                _knownDevices = devices;
+                recorded = devices;
             }
-
-            devices.Add(new DeviceProfile(identity, p.Target.FriendlyName, AutoApply: true, _clock().ToString("o")));
-            changed = true;
-            Log.Info("New external display recorded in known devices", "Settings",
-                ("identity", identity), ("name", p.Target.FriendlyName));
         }
 
-        if (changed)
+        // Event + persist stay outside the lock: PersistSettings does file I/O (its own
+        // lock in the store serializes the writes), and handlers must not run under it.
+        if (recorded is not null)
         {
-            _knownDevices = devices;
-            KnownDevicesChanged?.Invoke(devices);
+            KnownDevicesChanged?.Invoke(recorded);
             PersistSettings();
         }
     }
@@ -584,19 +633,25 @@ public sealed class PresentationManager : IDisposable
     public void SetDeviceAutoApply(string identity, bool autoApply)
     {
         ArgumentException.ThrowIfNullOrEmpty(identity);
-        List<DeviceProfile> devices = _knownDevices.ToList();
-        int i = devices.FindIndex(d => string.Equals(d.Identity, identity, StringComparison.Ordinal));
-        if (i < 0)
+        List<DeviceProfile> updated;
+        lock (_devicesLock)
         {
-            devices.Add(new DeviceProfile(identity, identity, autoApply, _clock().ToString("o")));
-        }
-        else
-        {
-            devices[i] = devices[i] with { AutoApply = autoApply };
+            List<DeviceProfile> devices = _knownDevices.ToList();
+            int i = devices.FindIndex(d => string.Equals(d.Identity, identity, StringComparison.Ordinal));
+            if (i < 0)
+            {
+                devices.Add(new DeviceProfile(identity, identity, autoApply, _clock().ToString("o")));
+            }
+            else
+            {
+                devices[i] = devices[i] with { AutoApply = autoApply };
+            }
+
+            _knownDevices = devices;
+            updated = devices;
         }
 
-        _knownDevices = devices;
-        KnownDevicesChanged?.Invoke(devices);
+        KnownDevicesChanged?.Invoke(updated);
         PersistSettings();
         Log.Info("Device auto-apply changed", "Settings",
             ("identity", identity), ("autoApply", autoApply.ToString()));
@@ -606,13 +661,22 @@ public sealed class PresentationManager : IDisposable
     public void ForgetDevice(string identity)
     {
         ArgumentException.ThrowIfNullOrEmpty(identity);
-        List<DeviceProfile> devices = _knownDevices
-            .Where(d => !string.Equals(d.Identity, identity, StringComparison.Ordinal))
-            .ToList();
-        if (devices.Count != _knownDevices.Count)
+        List<DeviceProfile>? removed = null;
+        lock (_devicesLock)
         {
-            _knownDevices = devices;
-            KnownDevicesChanged?.Invoke(devices);
+            List<DeviceProfile> devices = _knownDevices
+                .Where(d => !string.Equals(d.Identity, identity, StringComparison.Ordinal))
+                .ToList();
+            if (devices.Count != _knownDevices.Count)
+            {
+                _knownDevices = devices;
+                removed = devices;
+            }
+        }
+
+        if (removed is not null)
+        {
+            KnownDevicesChanged?.Invoke(removed);
         }
 
         UnignoreDisplay(identity); // forget also clears the ignore flag
@@ -756,7 +820,7 @@ public sealed class PresentationManager : IDisposable
 
             Log.Info("Trigger met and session idle — starting fix sequence.", "Monitor",
                 ("evaluationMs", sw.ElapsedMilliseconds.ToString()));
-            await RunExclusiveAsync(FixSequenceAsync).ConfigureAwait(false);
+            await RunExclusiveAsync(() => FixSequenceAsync()).ConfigureAwait(false);
         }
     }
 
@@ -778,7 +842,7 @@ public sealed class PresentationManager : IDisposable
         }
 
         Log.Info("ApplyNow: running fix sequence on user request.", "Manual");
-        await FixSequenceAsync().ConfigureAwait(false);
+        await FixSequenceAsync(manual: true).ConfigureAwait(false);
     }
 
     private Task RestoreNowCoreAsync()
@@ -887,7 +951,13 @@ public sealed class PresentationManager : IDisposable
 
     // ── Fix sequence (caller holds the gate) ────────────────────────────────────
 
-    private async Task FixSequenceAsync()
+    /// <summary>
+    /// Runs the fix sequence. <paramref name="manual"/> is true for a user-requested
+    /// apply (tray menu / hotkey): when no external display is connected, the
+    /// display-mode step is skipped and the presentation is simulated (Night Light,
+    /// DPI and extras still apply) instead of failing and unwinding immediately.
+    /// </summary>
+    private async Task FixSequenceAsync(bool manual = false)
     {
         if (!_session.TryBeginFix())
         {
@@ -939,49 +1009,74 @@ public sealed class PresentationManager : IDisposable
                     ("details", string.Join(" | ", nlResult.Details)));
             }
 
-            // Step 2: clone/duplicate topology with a 16:9 shared source (policy-gated: UseMode).
+            // Step 2: display mode — mirror (clone + 16:9 shared source) or extend
+            // (projector as a second screen), per the persisted ProjectorTopology
+            // setting (policy-gated: UseMode).
             string? modeError = null;
             if (UseMode)
             {
-                Log.Info("Fix Step 2: Display mode — clone + 16:9", "Fix", ("step", "displayMode"));
-                LogTopology("Topology before mode change", "Fix", QueryTopology());
-
-                modeError = _mode.ApplyCloneWith16x9(_preferNativeMode); // C1: prefer-native policy
-                MarkOwnMutation();
-
-                // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
-                // Issue #1: ChangeDisplaySettingsEx returns before the OS has
-                // re-enumerated the display paths, so a single immediate query can read
-                // a stale topology and false-fail the verify. Poll for a bounded settle
-                // window instead of reading once.
-                DisplayTopology afterMode = QueryTopology();
-                if (modeError is null)
+                DisplayTopology beforeMode = QueryTopology();
+                if (manual && beforeMode.ActivePaths.Count < 2)
                 {
-                    (modeError, afterMode) = await VerifyTriggerClearedAsync(afterMode).ConfigureAwait(false);
-                }
-
-                LogTopology("Topology after mode change", "Fix", afterMode, modeError);
-
-                if (modeError is not null)
-                {
-                    // UC-12 rules 4/13: never stay half-applied. Unwind everything via restore.
-                    Log.Warn("Fix failed at display mode — unwinding via restore.", "Fix",
+                    // Manual "Apply projector mode" with no external display connected:
+                    // a clone/extend has nothing to mirror onto and would fail, and the
+                    // unwind below would switch straight back. Simulate the presentation
+                    // instead — Night Light, DPI and the extras still apply; only the
+                    // display-mode step is skipped.
+                    Log.Info("Fix Step 2 skipped: manual apply with a single display — simulating presentation mode.", "Fix",
                         ("step", "displayMode"),
-                        ("error", modeError));
-                    NoteFailure(modeError);
-                    _session.RequestRestore();
-                    await RestoreSequenceAsync().ConfigureAwait(false);
-                    return;
+                        ("activePaths", beforeMode.ActivePaths.Count.ToString()),
+                        ("projectorTopology", _projectorTopology.ToString()));
                 }
+                else
+                {
+                    bool extend = _projectorTopology == PresentationTopology.Extend;
+                    Log.Info(extend
+                            ? "Fix Step 2: Display mode — extend + 16:9 on the external source"
+                            : "Fix Step 2: Display mode — clone + 16:9",
+                        "Fix", ("step", "displayMode"), ("projectorTopology", _projectorTopology.ToString()));
+                    LogTopology("Topology before mode change", "Fix", beforeMode);
 
-                Log.Info("Display mode applied and verified", "Fix", ("step", "displayMode"));
+                    modeError = extend
+                        ? _mode.ApplyExtendWith16x9(_preferNativeMode) // C1: prefer-native policy
+                        : _mode.ApplyCloneWith16x9(_preferNativeMode);
+                    MarkOwnMutation();
 
-                // B6: remember what the fix applied so the live status can report it.
-                // Reuse the settled topology from the verify — no extra query needed.
-                DisplayPath? appliedShared = afterMode.ActivePaths.FirstOrDefault();
-                _appliedSourceMode = appliedShared?.SourceMode is { } sm
-                    ? $"{sm.Width}x{sm.Height}@{sm.RefreshHz:0}"
-                    : null;
+                    // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
+                    // Issue #1: ChangeDisplaySettingsEx returns before the OS has
+                    // re-enumerated the display paths, so a single immediate query can read
+                    // a stale topology and false-fail the verify. Poll for a bounded settle
+                    // window instead of reading once. (After an extend the topology is no
+                    // longer mirrored, so the trigger is gone by construction.)
+                    DisplayTopology afterMode = QueryTopology();
+                    if (modeError is null)
+                    {
+                        (modeError, afterMode) = await VerifyTriggerClearedAsync(afterMode).ConfigureAwait(false);
+                    }
+
+                    LogTopology("Topology after mode change", "Fix", afterMode, modeError);
+
+                    if (modeError is not null)
+                    {
+                        // UC-12 rules 4/13: never stay half-applied. Unwind everything via restore.
+                        Log.Warn("Fix failed at display mode — unwinding via restore.", "Fix",
+                            ("step", "displayMode"),
+                            ("error", modeError));
+                        NoteFailure(modeError);
+                        _session.RequestRestore();
+                        await RestoreSequenceAsync().ConfigureAwait(false);
+                        return;
+                    }
+
+                    Log.Info("Display mode applied and verified", "Fix", ("step", "displayMode"));
+
+                    // B6: remember what the fix applied so the live status can report it.
+                    // Reuse the settled topology from the verify — no extra query needed.
+                    DisplayPath? appliedShared = afterMode.ActivePaths.FirstOrDefault();
+                    _appliedSourceMode = appliedShared?.SourceMode is { } sm
+                        ? $"{sm.Width}x{sm.Height}@{sm.RefreshHz:0}"
+                        : null;
+                }
             }
             else
             {

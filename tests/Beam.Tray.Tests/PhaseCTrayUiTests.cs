@@ -43,6 +43,11 @@ public class PhaseCTrayUiTests
             LastPreferNative = preferNative;
             return null;
         }
+        public string? ApplyExtendWith16x9(bool preferNative = true)
+        {
+            LastPreferNative = preferNative;
+            return null;
+        }
         public string? Restore() => null;
     }
 

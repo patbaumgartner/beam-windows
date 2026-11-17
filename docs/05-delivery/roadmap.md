@@ -95,6 +95,26 @@ unsigned distribution via GitHub Releases (installer + portable zip + SHA256SUMS
 every build and tag) + docs + hardware matrix (D). Details in
 [CHANGELOG.md](../../CHANGELOG.md) §0.2.0 and ADRs 0016–0019.
 
+## Unreleased — post-0.2.0 (2026-11-17)
+
+Green locally (build 0 warnings, **869 tests, 0 failed**); see
+[CHANGELOG.md](../../CHANGELOG.md) §Unreleased:
+
+- **Mirror/Extend projector screen** — persisted `ProjectorTopology` setting (Mirror
+  default; unknown/missing → Mirror), applied via `SDC_TOPOLOGY_EXTEND` + best 16:9 on the
+  first external path. Targets projectors that cannot mirror (2026-11-16 lecture log:
+  clone apply succeeded but the mirrored mismatch persisted → verify-after-mode unwind ×3
+  → safe mode).
+- **Simulated presentation mode** — tray/hotkey "Apply projector mode now" with no external
+  monitor skips the display-mode step and stays Active (Night Light/DPI/extras applied);
+  undo restores. Previously it failed with `win32Error=31` and restored immediately.
+  Auto triggers unchanged; CLI `beam apply` still exits `3` with no projector.
+- **`Win+P` stays with Windows** — rejected as a Beam hotkey in any spelling; default
+  hotkey `Win+Alt+P`.
+- **Settings saves serialized** — connect-burst races on `settings.json.tmp` (2026-11-16
+  16:39:15) fixed by a lock in `SettingsStore.Save` plus a lock around the known-devices
+  check-then-act in `PresentationManager`.
+
 ## Milestones
 
 | Milestone | Date (relative) | Definition |

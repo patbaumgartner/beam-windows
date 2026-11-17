@@ -15,14 +15,17 @@ User action.
 
 ## Surfaces
 1. **Tray icon** (left click: status flyout; right click: menu).
-2. **Global hotkey** (default: none; suggested `Win+Alt+P`, user-configurable).
+2. **Global hotkey** (default: `Win+Alt+P`, user-configurable; `Win+P` in any spelling is
+   rejected — it is Windows' own projector flyout and Beam never registers it).
 3. **Toast actions** (Undo, Settings).
 4. **CLI** (UC-16).
 
 ## Tray menu
 - Status line: `Display: Epson EB-2250U · 1920x1080 · 100% · Night Light off`
-- `Apply projector mode now` (enabled when a presentation display is active and not applied)
-- `Restore laptop settings`
+- `Apply projector mode now` (enabled while idle; with **no external monitor connected** it
+  simulates presentation mode instead of failing — Night Light off, DPI applied, extras on,
+  session stays Active until Undo)
+- `Restore laptop settings` / *Undo projector mode*
 - `Pause for 1 hour` / `Resume`
 - `Ignore this display` (per current device; excludes it from the trigger)
 - `Settings...`
@@ -49,7 +52,12 @@ User action.
 2. No UI unless the action fails.
 
 ## Alternative flows
-- **A1 No projector active:** "Apply" is disabled with tooltip "No projector detected".
+- **A1 No projector active:** manual apply (tray/hotkey) **simulates presentation mode** —
+  the display-mode step is skipped (there is nothing to switch), Night Light / DPI / extras
+  still apply, the session stays Active, and Undo restores everything. Automatic triggers
+  (display-change, startup check) are unchanged and still require a real external display.
+  The CLI keeps its script-friendly contract: `beam apply` with no projector exits `3`
+  (UC-16) — simulation is a tray/hotkey convenience only.
 - **A2 Apply fails:** toast with reason and a "Diagnostics" link.
 - **A3 Hotkey conflict:** registration fails -> show a warning in settings, keep running.
 - **A4 Pause while a projector is connected:** no auto-apply on reconnect until expiry.

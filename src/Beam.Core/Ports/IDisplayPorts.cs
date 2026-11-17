@@ -29,6 +29,18 @@ public interface IDisplayModeController
     /// <returns><c>null</c> on success; an error message when the change was rejected.</returns>
     string? ApplyCloneWith16x9(bool preferNative = true);
 
+    /// <summary>
+    /// Enters extend mode (the projector becomes a second screen with its own source)
+    /// and switches that external source to the best supported 16:9 mode, so the
+    /// projector shows a clean 16:9 desktop of its own.
+    /// </summary>
+    /// <param name="preferNative">
+    /// C1/B2: when true, the projector's EDID-native 16:9 mode is ranked first; when false,
+    /// ranking falls back to highest pixels, then 60 Hz over 30 Hz.
+    /// </param>
+    /// <returns><c>null</c> on success; an error message when the change was rejected.</returns>
+    string? ApplyExtendWith16x9(bool preferNative = true);
+
     /// <summary>Restores the original topology and captured source modes.</summary>
     /// <returns><c>null</c> on success; an error message otherwise.</returns>
     string? Restore();

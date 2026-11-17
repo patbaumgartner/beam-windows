@@ -1,3 +1,4 @@
+using Beam.Core.Display;
 using Beam.Core.Settings;
 
 namespace Beam.App.Tests;
@@ -116,6 +117,63 @@ public class PersistedSettingsTests
 
         Assert.Equal(BeamSettings.Defaults.Hotkey, h.Manager.Hotkey);
         Assert.Equal(BeamSettings.Defaults.Hotkey, store.Current.Hotkey);
+    }
+
+    [Theory]
+    [InlineData("Win+P")]
+    [InlineData("win+p")]
+    [InlineData("Super+P")]
+    [InlineData("Windows+P")]
+    public void Hotkey_ReservedWinP_FallsBackToDefault_NeverRegistered(string reserved)
+    {
+        var store = new FakeSettingsStore();
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), settings: store);
+
+        h.Manager.Hotkey = reserved;
+
+        // Win+P stays with Windows: the manager refuses it and keeps the default Win+Alt+P.
+        Assert.Equal(BeamSettings.Defaults.Hotkey, h.Manager.Hotkey);
+        Assert.Equal(BeamSettings.Defaults.Hotkey, store.Current.Hotkey);
+    }
+
+    [Fact]
+    public void Hotkey_ReservedWinP_InStore_FallsBackOnLoad()
+    {
+        var store = new FakeSettingsStore();
+        store.Save(BeamSettings.Defaults with { Hotkey = "Win+P" });
+
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), settings: store);
+
+        Assert.Equal(BeamSettings.Defaults.Hotkey, h.Manager.Hotkey);
+    }
+
+    [Fact]
+    public void ProjectorTopology_Persists_AndSurvivesRestart()
+    {
+        var store = new FakeSettingsStore();
+        using (var h = new PresentationHarness(Topologies.MirroredWithMismatch(), settings: store))
+        {
+            Assert.Equal(PresentationTopology.Mirror, h.Manager.ProjectorTopology); // default
+            h.Manager.ProjectorTopology = PresentationTopology.Extend;
+            Assert.Equal("Extend", store.Current.ProjectorTopology);
+        }
+
+        // "Restart": a new manager over the same store loads the persisted topology.
+        using var h2 = new PresentationHarness(Topologies.MirroredWithMismatch(), settings: store);
+        Assert.Equal(PresentationTopology.Extend, h2.Manager.ProjectorTopology);
+        Assert.Equal("Extend", h2.Manager.CurrentSettings.ProjectorTopology);
+    }
+
+    [Fact]
+    public void ProjectorTopology_UnknownStoredValue_FallsBackToMirror()
+    {
+        var store = new FakeSettingsStore();
+        store.Save(BeamSettings.Defaults with { ProjectorTopology = "Sideways" });
+
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), settings: store);
+
+        Assert.Equal(PresentationTopology.Mirror, h.Manager.ProjectorTopology);
+        Assert.Equal("Mirror", h.Manager.CurrentSettings.ProjectorTopology);
     }
 
     [Fact]

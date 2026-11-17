@@ -96,6 +96,89 @@ public sealed class DisplayModeController : IDisplayModeController
         return modeError;
     }
 
+    /// <summary>
+    /// Enters extend topology and switches the projector's own source to 16:9.
+    /// <param name="preferNative">C1/B2: rank the EDID-native 16:9 mode first (default true).</param>
+    /// <returns>Null on success; an error message if the change was rejected.</returns>
+    /// </summary>
+    public string? ApplyExtendWith16x9(bool preferNative = true)
+    {
+        var sw = Stopwatch.StartNew();
+
+        // Capture the current DEVMODE for every active display before changing anything,
+        // so Restore() can put each source back exactly.
+        CaptureSnapshots();
+        Log.Info("Snapshots captured before extend", "DisplayMode",
+            ("count", _snapshots.Count),
+            ("snapshots", string.Join(" | ", _snapshots.Select(s => $"{s.GdiName}={s.Width}x{s.Height}@{s.Frequency}Hz"))));
+
+        // 1) Put the OS into extend topology (each display gets its own source/desktop).
+        int err = SetDisplayConfig(0, null, 0, null, SdcTopologyExtend | SdcApply);
+        if (err != ErrorSuccess)
+        {
+            sw.Stop();
+            Log.Error("SetDisplayConfig(TOPOLOGY_EXTEND) failed", "DisplayMode",
+                ("win32Error", err.ToString()),
+                ("elapsedMs", sw.ElapsedMilliseconds.ToString()));
+            return $"SetDisplayConfig(TOPOLOGY_EXTEND) failed: Win32 error {err}.";
+        }
+
+        Log.Info("Extend topology applied, waiting for OS to settle", "DisplayMode",
+            ("win32Error", err.ToString()),
+            ("settleMs", 1500.ToString()));
+        Thread.Sleep(1500); // Let the OS settle.
+
+        // 2) In extend mode every target has its own source; pick the external one and
+        // set ITS source to the best 16:9 mode (the internal panel keeps its own mode).
+        DisplayTopology topology = _inventory.Query();
+        DisplayPath? external = SelectExternalPath(topology);
+        if (external is null)
+        {
+            sw.Stop();
+            Log.Error("No active external path found after extend.", "DisplayMode",
+                ("elapsedMs", sw.ElapsedMilliseconds.ToString()),
+                ("topology", topology.ToString()));
+            return "No active external display found after extend.";
+        }
+
+        string gdi = external.SourceGdiName;
+
+        // The projector's EDID-native 16:9 mode, ranked first when preferNative is on.
+        DisplayMode? nativeMode = external.Target.NativeMode is { } m
+            && AspectRatio.Classify(m) == AspectKind.SixteenNine
+                ? m
+                : null;
+
+        Log.Info("Found external source after extend", "DisplayMode",
+            ("gdiName", gdi),
+            ("sourceId", external.SourceId.ToString()),
+            ("sourceMode", external.SourceMode?.ToString() ?? "null"),
+            ("nativeMode", nativeMode?.ToString() ?? "none"),
+            ("topology", topology.ToString()));
+
+        string? modeError = TrySet16x9(gdi, nativeMode, preferNative);
+
+        sw.Stop();
+        Log.Info("ApplyExtendWith16x9 complete", "DisplayMode",
+            ("gdiName", gdi),
+            ("error", modeError ?? "none"),
+            ("success", (modeError is null).ToString()),
+            ("elapsedMs", sw.ElapsedMilliseconds.ToString()));
+
+        return modeError;
+    }
+
+    /// <summary>
+    /// The first active external path with a GDI name — in extend mode that is the
+    /// projector's own source. Pure helper, unit tested.
+    /// </summary>
+    internal static DisplayPath? SelectExternalPath(DisplayTopology topology)
+    {
+        ArgumentNullException.ThrowIfNull(topology);
+        return topology.ActivePaths.FirstOrDefault(p =>
+            !p.Target.IsInternal && !string.IsNullOrEmpty(p.SourceGdiName));
+    }
+
     private string? TrySet16x9(string gdi, DisplayMode? nativeMode = null, bool preferNative = true)
     {
         // Pick the best 16:9 mode the display actually supports instead of hard-coding.

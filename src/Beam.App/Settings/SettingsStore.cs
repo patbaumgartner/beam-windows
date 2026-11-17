@@ -27,6 +27,12 @@ public sealed class SettingsStore : ISettingsStore
     private readonly string _path;
     private readonly string _tmpPath;
 
+    /// <summary>Serializes <see cref="Save"/>: every save funnels through the same tmp file,
+    /// so two concurrent saves (display-change handler + startup + tray) would race on
+    /// <c>settings.json.tmp</c> and one save would be lost with "file in use by another
+    /// process" (observed in the 2026-11-16 lecture log).</summary>
+    private readonly object _saveLock = new();
+
     /// <summary>The last parsed root object, kept so <see cref="Save"/> preserves unknown keys.</summary>
     private JsonObject? _raw;
 
@@ -105,7 +111,8 @@ public sealed class SettingsStore : ISettingsStore
                 DoNotDisturb: GetBool(obj, nameof(BeamSettings.DoNotDisturb), BeamSettings.Defaults.DoNotDisturb),
                 AudioToHdmi: GetBool(obj, nameof(BeamSettings.AudioToHdmi), BeamSettings.Defaults.AudioToHdmi),
                 IgnoredDisplays: GetStringList(obj, nameof(BeamSettings.IgnoredDisplays)),
-                Hotkey: GetString(obj, nameof(BeamSettings.Hotkey), BeamSettings.Defaults.Hotkey));
+                Hotkey: GetString(obj, nameof(BeamSettings.Hotkey), BeamSettings.Defaults.Hotkey),
+                ProjectorTopology: GetString(obj, nameof(BeamSettings.ProjectorTopology), BeamSettings.Defaults.ProjectorTopology));
 
             _raw = obj;
             return settings;
@@ -128,33 +135,37 @@ public sealed class SettingsStore : ISettingsStore
     /// </summary>
     public void Save(BeamSettings settings)
     {
-        try
+        lock (_saveLock)
         {
-            JsonObject obj = _raw is not null ? (JsonObject)_raw.DeepClone() : new JsonObject();
-            obj[nameof(BeamSettings.Version)] = BeamSettings.CurrentVersion;
-            obj[nameof(BeamSettings.IsEnabled)] = settings.IsEnabled;
-            obj[nameof(BeamSettings.UseMode)] = settings.UseMode;
-            obj[nameof(BeamSettings.UseDpi)] = settings.UseDpi;
-            obj[nameof(BeamSettings.UseNightLight)] = settings.UseNightLight;
-            obj[nameof(BeamSettings.KeepAwake)] = settings.KeepAwake;
-            obj[nameof(BeamSettings.DoNotDisturb)] = settings.DoNotDisturb;
-            obj[nameof(BeamSettings.AudioToHdmi)] = settings.AudioToHdmi;
-            obj[nameof(BeamSettings.IgnoredDisplays)] = new JsonArray(
-                settings.IgnoredDisplays.Select(i => (JsonNode?)JsonValue.Create(i)).ToArray());
-            obj[nameof(BeamSettings.Hotkey)] = settings.Hotkey;
+            try
+            {
+                JsonObject obj = _raw is not null ? (JsonObject)_raw.DeepClone() : new JsonObject();
+                obj[nameof(BeamSettings.Version)] = BeamSettings.CurrentVersion;
+                obj[nameof(BeamSettings.IsEnabled)] = settings.IsEnabled;
+                obj[nameof(BeamSettings.UseMode)] = settings.UseMode;
+                obj[nameof(BeamSettings.UseDpi)] = settings.UseDpi;
+                obj[nameof(BeamSettings.UseNightLight)] = settings.UseNightLight;
+                obj[nameof(BeamSettings.KeepAwake)] = settings.KeepAwake;
+                obj[nameof(BeamSettings.DoNotDisturb)] = settings.DoNotDisturb;
+                obj[nameof(BeamSettings.AudioToHdmi)] = settings.AudioToHdmi;
+                obj[nameof(BeamSettings.IgnoredDisplays)] = new JsonArray(
+                    settings.IgnoredDisplays.Select(i => (JsonNode?)JsonValue.Create(i)).ToArray());
+                obj[nameof(BeamSettings.Hotkey)] = settings.Hotkey;
+                obj[nameof(BeamSettings.ProjectorTopology)] = settings.ProjectorTopology;
 
-            string json = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(_tmpPath, json);
-            // Atomic on NTFS: a single rename replaces the old file (same pattern as the journal).
-            File.Move(_tmpPath, _path, overwrite: true);
-            _raw = obj;
-        }
-        catch (Exception ex)
-        {
-            // A settings write failure must never take the app down.
-            Log.Warn("Settings save failed — continuing with in-memory settings", "Settings",
-                ("file", Path.GetFileName(_path)),
-                ("error", ex.Message));
+                string json = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+                File.WriteAllText(_tmpPath, json);
+                // Atomic on NTFS: a single rename replaces the old file (same pattern as the journal).
+                File.Move(_tmpPath, _path, overwrite: true);
+                _raw = obj;
+            }
+            catch (Exception ex)
+            {
+                // A settings write failure must never take the app down.
+                Log.Warn("Settings save failed — continuing with in-memory settings", "Settings",
+                    ("file", Path.GetFileName(_path)),
+                    ("error", ex.Message));
+            }
         }
     }
 

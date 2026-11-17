@@ -25,7 +25,9 @@ beam safe-mode reset
 
 ## Behaviour
 - Exit codes: `0` success, `1` generic failure, `2` invalid arguments, `3` no projector,
-  `4` unsupported operation, `5` safe mode.
+  `4` unsupported operation, `5` safe mode. (`beam apply` with no projector connected keeps
+  exiting `3` — the simulated-presentation-mode behavior of UC-08 A1 is a tray/hotkey
+  convenience only, so scripts can rely on the exit code.)
 - `--json` emits one object per invocation: `{ version, success, state|error }`
   (mirrors PowerToys LightSwitch CLI conventions).
 - `--dry-run` prints the plan (mode, scale, Night Light) without mutating.

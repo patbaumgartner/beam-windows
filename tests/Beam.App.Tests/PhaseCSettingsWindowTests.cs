@@ -256,6 +256,29 @@ public class PhaseCSettingsWindowTests
             d => d.Identity == Dell && !d.AutoApply);
     }
 
+    [Fact]
+    public async Task KnownDevices_ConcurrentTopologyQueries_RecordEachExternalOnce()
+    {
+        // Field repro (2026-11-16 16:39:15): a display-change burst raced the startup query
+        // — the same projector was logged twice 3 ms apart and both recorders fired a
+        // settings save that collided on settings.json.tmp. QueryTopology runs from the
+        // display-change handler, the startup check and the tray UI thread concurrently;
+        // the device must still be recorded exactly once.
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+
+        Task[] tasks = Enumerable.Range(0, 16)
+            .Select(_ => Task.Run(() =>
+            {
+                h.Changes.Raise(Topologies.Snapshot(1), Topologies.Snapshot(2));
+                h.Manager.RefreshExternalPaths();
+            }))
+            .ToArray();
+        await Task.WhenAll(tasks);
+        await h.Manager.PendingTask;
+
+        Assert.Single(h.Manager.KnownDevices, d => d.Identity == Dell);
+    }
+
     // ── First-run toast flag (C3) ────────────────────────────────────────────────
 
     [Fact]

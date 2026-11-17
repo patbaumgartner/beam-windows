@@ -181,4 +181,59 @@ public class DisplayModeControllerTests
         Assert.Equal(DisplayNative.SdcTopologyInternal, DisplayModeController.RestoreTopologyFlag(1));
         Assert.Equal(DisplayNative.SdcTopologyInternal, DisplayModeController.RestoreTopologyFlag(0));
     }
+
+    private static DisplayPath Path(string gdi, uint sourceId, bool isInternal, bool active) =>
+        new(gdi, sourceId, "0001594D:00000000", sourceId + 1,
+            new DisplayTarget(
+                isInternal ? "Laptop" : "DELL", "SHP", 0x1551, "HDMI",
+                isInternal ? @"monitor\Laptop" : @"monitor\DELL", isInternal, true),
+            active,
+            new DisplayMode(1920, 1080, 60),
+            new DisplayMode(1920, 1080, 60),
+            0, 0, "0", null, null, null, null);
+
+    [Fact]
+    public void SelectExternalPath_PicksFirstActiveExternalWithGdiName()
+    {
+        var topology = new DisplayTopology(new[]
+        {
+            Path(@"\\.\DISPLAY1", 0, isInternal: true, active: true),
+            Path(@"\\.\DISPLAY2", 1, isInternal: false, active: true),
+        }, DisplayTopologyId.Extend);
+
+        DisplayPath? selected = DisplayModeController.SelectExternalPath(topology);
+
+        Assert.NotNull(selected);
+        Assert.Equal(@"\\.\DISPLAY2", selected!.SourceGdiName);
+        Assert.False(selected.Target.IsInternal);
+    }
+
+    [Fact]
+    public void SelectExternalPath_SkipsInternal_Inactive_AndMissingGdi()
+    {
+        var topology = new DisplayTopology(new[]
+        {
+            Path(@"\\.\DISPLAY1", 0, isInternal: true, active: true),
+            Path("", 1, isInternal: false, active: true),              // external but no GDI name
+            Path(@"\\.\DISPLAY3", 2, isInternal: false, active: false), // inactive
+            Path(@"\\.\DISPLAY4", 3, isInternal: false, active: true),
+        }, DisplayTopologyId.Extend);
+
+        DisplayPath? selected = DisplayModeController.SelectExternalPath(topology);
+
+        Assert.NotNull(selected);
+        Assert.Equal(@"\\.\DISPLAY4", selected!.SourceGdiName);
+    }
+
+    [Fact]
+    public void SelectExternalPath_NullWhenOnlyInternalOrEmpty()
+    {
+        var onlyInternal = new DisplayTopology(new[]
+        {
+            Path(@"\\.\DISPLAY1", 0, isInternal: true, active: true),
+        }, DisplayTopologyId.Internal);
+
+        Assert.Null(DisplayModeController.SelectExternalPath(onlyInternal));
+        Assert.Null(DisplayModeController.SelectExternalPath(DisplayTopology.Empty));
+    }
 }

@@ -18,7 +18,8 @@ Beam needs one per-user settings file. Requirements that accumulated over Phases
   `Environment.SpecialFolder` magic beyond a plain path.
 - C1 added six new optional fields (`TimedPauseMinutes`, `RestoreOnDisconnect`,
   `DpiTargetPercent`, `PreferNativeMode`, `KnownDevices`, `FirstRunToastShown`) without
-  a schema bump.
+  a schema bump; the post-0.2.0 `ProjectorTopology` ("Mirror"/"Extend") is another such
+  optional field.
 
 ## Decision
 
@@ -33,9 +34,12 @@ One JSON file per user at `%LOCALAPPDATA%\Beam\settings.json`, implemented by
 3. **PascalCase JSON** via System.Text.Json defaults — matching the record's property
    names; the CLI's `--json` output uses camelCase options instead, deliberately, so
    machine output stays conventional while the on-disk format stays stable.
-4. **Atomic writes**: serialize to `settings.json.tmp`, then `File.Move(tmp, path,
-   overwrite: true)`. A crash leaves either the old or the new file, never a partial
-   one.
+4. **Atomic, serialized writes**: `Save` holds a lock, serializes to `settings.json.tmp`,
+   then `File.Move(tmp, path, overwrite: true)`. A crash leaves either the old or the new
+   file, never a partial one — and concurrent in-process saves (display-change handler +
+   startup + tray) cannot collide on the tmp file. (They did before 2026-11-17: a
+   projector connect-burst saved twice within 3 ms and one save was lost with
+   "settings.json.tmp ... being used by another process".)
 5. **Unknown-key preservation**: on save the existing file is parsed as a
    `JsonNode`; known keys are overwritten with the new values, unknown keys are kept
    verbatim (newer versions' data survives an older build's save).
@@ -65,9 +69,10 @@ One JSON file per user at `%LOCALAPPDATA%\Beam\settings.json`, implemented by
   clamp, corrupt set-aside, newer-version ignore, unknown-key preservation).
 
 **Negative**
-- JSON has no file locking: two Beam instances could race a save. Mitigated by the
-  single-instance mutex in the tray composition root; the CLI only writes via
-  `StatusFile`-style atomic paths and does not rewrite settings.
+- JSON has no cross-process file locking: two Beam instances could race a save. Mitigated
+  by the single-instance mutex in the tray composition root; the CLI only writes via
+  `StatusFile`-style atomic paths and does not rewrite settings. In-process saves are
+  serialized by the lock in `Save` (decision 4).
 - PascalCase on disk is slightly unusual for JSON config, but stability of the on-disk
   format beats convention here.
 
