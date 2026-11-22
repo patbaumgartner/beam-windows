@@ -51,8 +51,12 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
 - **Undo now restores only what Beam actually changed.** Simulated presentation no longer
   switches topology on Undo; disabled mode/DPI/Night Light policies no longer cause restoration
   writes; and a failure before the first mutation no longer invokes a blind display restore.
+- **A recovery journal is now mandatory before mutation.** Journal writes are serialized,
+  flushed to disk, and surfaced on failure instead of silently swallowed. Tray and CLI apply
+  abort before changing any setting when persistence fails; the CLI reports a structured JSON
+  error when requested, and an existing journal is preserved for recovery.
 
-Test suite: **880 tests, 0 failed** (Architecture 11, Core 332, Cli 94, Windows 65, App 233,
+Test suite: **883 tests, 0 failed** (Architecture 11, Core 332, Cli 95, Windows 65, App 235,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

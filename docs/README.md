@@ -8,7 +8,7 @@ extras, persisted settings, global hotkey, unsigned GitHub Releases distribution
 Unreleased post-0.2.0 work (2026-11-17): Mirror/Extend projector-screen setting, simulated
 presentation mode for manual apply without a projector, `Win+P` reserved for Windows
 (default hotkey `Win+Alt+P`), and serialized settings saves. See
-[CHANGELOG.md](../CHANGELOG.md) §Unreleased — 880 tests, 0 failed.
+[CHANGELOG.md](../CHANGELOG.md) §Unreleased — 883 tests, 0 failed.
 **Author:** planning session, 2026-10-29 (refactor documented 2026-11-01)
 **Target OS:** Windows 11 (validated against 26H2, build 26300)
 **Target PowerToys:** 0.102.3001.0 (released 2026-10-27)

@@ -1005,8 +1005,24 @@ public sealed class PresentationManager : IDisposable
             _extras = CaptureExtras();
 
             // Persist intent before any mutation: if Beam is killed later in the sequence,
-            // the next launch sees an active journal and can recover.
-            _journal.BeginApply("fix-sequence-started", _nightLightSnapshot, _dpiSnapshot, _extras);
+            // the next launch sees an active journal and can recover. Without a durable
+            // journal, changing the machine would be unsafe, so abort before the first write.
+            try
+            {
+                _journal.BeginApply("fix-sequence-started", _nightLightSnapshot, _dpiSnapshot, _extras);
+            }
+            catch (Exception ex)
+            {
+                overall.Stop();
+                Log.Exception(ex, "Fix", ("step", "journal"));
+                NoteFailure("recovery journal could not be written; apply aborted");
+                _nightLightSnapshot = null;
+                _dpiSnapshot = null;
+                _extras = null;
+                _session.RequestRestore();
+                _session.MarkIdle();
+                return;
+            }
 
             if (UseNightLight)
             {

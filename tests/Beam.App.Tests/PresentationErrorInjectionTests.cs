@@ -120,6 +120,23 @@ public class PresentationErrorInjectionTests
     }
 
     [Fact]
+    public async Task JournalWriteFailure_AbortsBeforeAnyMutation()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), DpiScale.From(-4, 0, 4));
+        h.Journal.ThrowOnBegin = true;
+
+        await h.Manager.ApplyNowAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(0, h.NightLight.SetActiveCalls);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Mode.RestoreCalls);
+        Assert.Empty(h.Dpi.RequestedPercents);
+        Assert.Equal(0, h.KeepAwake.HoldCalls);
+        Assert.Null(h.Journal.Record);
+    }
+
+    [Fact]
     public async Task FixSequence_TopologyThrowsDuringDpiStep_SessionActive()
     {
         // ApplyDpi catches internally, so a throwing topology query inside the DPI step

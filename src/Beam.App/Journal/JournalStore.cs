@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text;
 using System.Text.Json;
 using Beam.Core.Diagnostics;
 using Beam.Core.NightLight;
@@ -23,6 +24,7 @@ public sealed class JournalStore : IJournalStore
 {
     private readonly string _path;
     private readonly string _tmpPath;
+    private readonly object _writeLock = new();
 
     public JournalStore(string? dir = null)
     {
@@ -74,6 +76,14 @@ public sealed class JournalStore : IJournalStore
     /// </summary>
     public JournalRecord? Read()
     {
+        lock (_writeLock)
+        {
+            return ReadCore();
+        }
+    }
+
+    private JournalRecord? ReadCore()
+    {
         try
         {
             if (!File.Exists(_path))
@@ -110,20 +120,23 @@ public sealed class JournalStore : IJournalStore
     /// <summary>Removes the journal file entirely (clean shutdown / restore complete).</summary>
     public void Clear()
     {
-        try
+        lock (_writeLock)
         {
-            if (File.Exists(_path))
+            try
             {
-                File.Delete(_path);
+                if (File.Exists(_path))
+                {
+                    File.Delete(_path);
+                }
+                if (File.Exists(_tmpPath))
+                {
+                    File.Delete(_tmpPath);
+                }
             }
-            if (File.Exists(_tmpPath))
+            catch
             {
-                File.Delete(_tmpPath);
+                // Best-effort; a stale journal just triggers a harmless recover attempt.
             }
-        }
-        catch
-        {
-            // Best-effort; a stale journal just triggers a harmless recover attempt.
         }
     }
 
@@ -131,16 +144,27 @@ public sealed class JournalStore : IJournalStore
     {
         try
         {
-            string json = JsonSerializer.Serialize(journal, Options);
-            File.WriteAllText(_tmpPath, json);
-            // Atomic on NTFS: a single rename replaces the old journal, so a crash can
-            // never leave a missing or half-written journal (the old Delete+Move had a
-            // window where the journal was gone entirely and crash recovery was lost).
-            File.Move(_tmpPath, _path, overwrite: true);
+            lock (_writeLock)
+            {
+                string json = JsonSerializer.Serialize(journal, Options);
+                using (var stream = new FileStream(_tmpPath, FileMode.Create, FileAccess.Write, FileShare.None))
+                using (var writer = new StreamWriter(stream, new UTF8Encoding(false), 1024, leaveOpen: true))
+                {
+                    writer.Write(json);
+                    writer.Flush();
+                    // Atomic replacement protects readers; flushing first also makes the
+                    // recovery record durable before Beam is allowed to mutate the machine.
+                    stream.Flush(flushToDisk: true);
+                }
+
+                File.Move(_tmpPath, _path, overwrite: true);
+            }
         }
-        catch
+        catch (Exception ex)
         {
-            // A journal write failure must never take the app down.
+            // Mutation is unsafe without its inverse. Surface a stable exception type so
+            // both composition roots can abort before touching Night Light or displays.
+            throw new IOException("Could not persist the Beam recovery journal.", ex);
         }
     }
 

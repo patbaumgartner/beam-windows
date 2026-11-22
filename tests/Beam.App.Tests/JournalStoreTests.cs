@@ -233,6 +233,28 @@ public class JournalStoreTests
     }
 
     [Fact]
+    public void BeginApply_WriteFailure_ThrowsAndPreservesPreviousJournal()
+    {
+        string dir = TempDir();
+        try
+        {
+            var store = new JournalStore(dir);
+            store.BeginApply("known-good", null);
+            string before = File.ReadAllText(Path.Combine(dir, "journal.json"));
+            Directory.CreateDirectory(Path.Combine(dir, "journal.json.tmp"));
+
+            Assert.Throws<IOException>(() => store.BeginApply("must-not-replace", null));
+
+            Assert.Equal(before, File.ReadAllText(Path.Combine(dir, "journal.json")));
+            Assert.Equal("known-good", store.Read()!.Reason);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Read_OversizedJournal_ReturnsNull()
     {
         string dir = TempDir();

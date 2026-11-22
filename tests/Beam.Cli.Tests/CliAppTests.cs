@@ -389,6 +389,23 @@ public class CliAppTests
     }
 
     [Fact]
+    public void Apply_JournalWriteFailure_ReturnsFailureWithoutMutatingAnything()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.Journal.ThrowOnBegin = true;
+
+        int code = h.Run("apply", "--json");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.NightLight.SetActiveCalls);
+        Assert.Empty(h.Dpi.RequestedPercents);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("journal", doc.RootElement.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Restore_WithJournal_RestoresCapturedNightLight()
     {
         var h = new CliHarness(CliTopologies.Extended());

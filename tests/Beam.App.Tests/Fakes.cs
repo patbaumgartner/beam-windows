@@ -239,6 +239,7 @@ internal sealed class FakeJournalStore : IJournalStore
     public IReadOnlyList<NightLightSnapshot>? LastBegin { get; private set; }
     public IReadOnlyList<JournalDpiEntry>? LastDpi { get; private set; }
     public JournalExtras? LastExtras { get; private set; }
+    public bool ThrowOnBegin { get; set; }
 
     /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
     public Action? BeforeCall { get; set; }
@@ -250,6 +251,11 @@ internal sealed class FakeJournalStore : IJournalStore
         JournalExtras? extras = null)
     {
         BeforeCall?.Invoke();
+        if (ThrowOnBegin)
+        {
+            throw new IOException("simulated journal write failure");
+        }
+
         BeginCalls++;
         LastBegin = nightLight;
         LastDpi = dpi;

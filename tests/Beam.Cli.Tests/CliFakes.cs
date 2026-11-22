@@ -157,6 +157,7 @@ internal sealed class CliJournalStore : IJournalStore
     public int ClearCalls { get; private set; }
     public IReadOnlyList<JournalDpiEntry>? LastDpi { get; private set; }
     public JournalExtras? LastExtras { get; private set; }
+    public bool ThrowOnBegin { get; set; }
 
     public void BeginApply(
         string reason,
@@ -164,6 +165,11 @@ internal sealed class CliJournalStore : IJournalStore
         IReadOnlyList<JournalDpiEntry>? dpi = null,
         JournalExtras? extras = null)
     {
+        if (ThrowOnBegin)
+        {
+            throw new IOException("simulated journal write failure");
+        }
+
         BeginCalls++;
         LastDpi = dpi;
         LastExtras = extras;

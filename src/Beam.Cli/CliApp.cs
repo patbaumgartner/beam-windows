@@ -358,7 +358,25 @@ public sealed class CliApp
 
         IReadOnlyList<NightLightSnapshot> snapshots = _nightLight.SnapshotAll();
         IReadOnlyList<JournalDpiEntry>? dpiEntries = CaptureDpiEntries();
-        _journal.BeginApply("cli-apply", snapshots, dpiEntries);
+        try
+        {
+            _journal.BeginApply("cli-apply", snapshots, dpiEntries);
+        }
+        catch (Exception ex)
+        {
+            const string message = "Could not write the recovery journal; no settings were changed.";
+            if (options.Json)
+            {
+                WriteJson(new { version = Version, success = false, error = message, detail = ex.Message });
+            }
+            else
+            {
+                _error.WriteLine(message);
+                _error.WriteLine(ex.Message);
+            }
+
+            return ExitCodes.Failure;
+        }
 
         NightLightWriteResult nightLight = _nightLight.SetActive(false);
         string? modeError = _mode.ApplyCloneWith16x9();
