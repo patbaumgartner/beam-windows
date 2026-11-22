@@ -64,8 +64,13 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   pre-apply capture, DPI application, live status, journalling, and restore. The external source
   is used in Extend even when the internal panel is enumerated first; Mirror and single-display
   simulated presentation retain their previous source selection.
+- **Native display identification is corrected.** USB-C DisplayPort tunnel targets are external,
+  LVDS/embedded DisplayPort/embedded UDI panels are internal, EDID manufacturer words are
+  byte-swapped and validity-gated, rotation names match Windows, and current DPI percentages
+  are resolved into monitor snapshots. Multi-GPU paths now group by `(AdapterId, SourceId)` so
+  identical source numbers on unrelated adapters cannot form a false clone or aspect mismatch.
 
-Test suite: **895 tests, 0 failed** (Architecture 11, Core 341, Cli 95, Windows 67, App 236,
+Test suite: **917 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 87, App 236,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

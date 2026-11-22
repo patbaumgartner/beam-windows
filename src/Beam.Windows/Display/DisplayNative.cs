@@ -39,6 +39,9 @@ public static class DisplayNative
     public const int DeviceInfoGetDpiScale = -3;
     public const int DeviceInfoSetDpiScale = -4;
 
+    // DISPLAYCONFIG_TARGET_DEVICE_NAME flags.
+    public const uint TargetDeviceNameEdidIdsValid = 0x00000004;
+
     public const uint ModeIdxInvalid = 0xFFFFFFFF;
 
     // EnumDisplaySettingsEx mode index.
@@ -66,7 +69,8 @@ public static class DisplayNative
     public const uint SdcTopologyExternal = 0x00000008;
     public const uint SdcUseSuppliedDisplayConfig = 0x00000020;
     public const uint SdcApply = 0x00000080;
-    public const uint SdcSaveToDatabase = 0x00000100;
+    public const uint SdcNoOptimization = 0x00000100;
+    public const uint SdcSaveToDatabase = 0x00000200;
     public const uint SdcAllowChanges = 0x00000400;
 
     public const int DispChangeSuccessful = 0;
@@ -476,6 +480,9 @@ public static class DisplayNative
             return string.Empty;
         }
 
+        // EDID stores the word big-endian; Windows exposes the two bytes in a little-endian
+        // ushort. Swap before extracting the three 5-bit letters (SHP, not DBM).
+        id = (ushort)((id >> 8) | (id << 8));
         Span<char> letters = stackalloc char[3];
         letters[0] = (char)('A' + ((id >> 10) & 0x1F) - 1);
         letters[1] = (char)('A' + ((id >> 5) & 0x1F) - 1);
@@ -483,10 +490,15 @@ public static class DisplayNative
         return new string(letters);
     }
 
-    private const int OutputTechnologyInternal = 18;
-
-    /// <summary><c>DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL_VIRTUAL</c> (<c>0x80000000</c>).</summary>
+    /// <summary><c>DISPLAYCONFIG_OUTPUT_TECHNOLOGY_INTERNAL</c> (<c>0x80000000</c>).</summary>
     public const int OutputTechnologyInternalVirtual = unchecked((int)0x80000000);
+
+    /// <summary><c>DISPLAYCONFIG_OUTPUT_TECHNOLOGY_FORCE_UDIF</c> (<c>0x80000001</c>).</summary>
+    public const int OutputTechnologyForceUdif = unchecked((int)0x80000001);
+
+    /// <summary>True for built-in/embedded connection types, never for USB-C DisplayPort.</summary>
+    public static bool IsInternalOutputTechnology(int value) =>
+        value is 6 or 11 or 13 || value == OutputTechnologyInternalVirtual;
 
     /// <summary>Maps <c>DISPLAYCONFIG_VIDEO_OUTPUT_TECHNOLOGY</c> to a readable name.</summary>
     public static string OutputTechnologyName(int value) => value switch
@@ -509,19 +521,19 @@ public static class DisplayNative
         14 => "SDTV dongle",
         15 => "Miracast",
         16 => "Indirect wired",
-        17 => "HDMI embedded",
-        18 => "Internal",
-        19 => "Force UDIF",
-        20 => "DisplayPort USB tunnel",
-        OutputTechnologyInternalVirtual => "Internal (virtual)",
+        17 => "Indirect virtual",
+        18 => "DisplayPort USB tunnel",
+        OutputTechnologyForceUdif => "Force UDIF",
+        OutputTechnologyInternalVirtual => "Internal",
         _ => $"Unknown ({value})",
     };
 
     public static string RotationName(int value) => value switch
     {
-        1 => "90",
-        2 => "180",
-        3 => "270",
+        1 => "0",
+        2 => "90",
+        3 => "180",
+        4 => "270",
         _ => "0",
     };
 }

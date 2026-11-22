@@ -248,18 +248,19 @@ public sealed class DisplayInventory : ITopologySource
                 0,
                 OutputTechnologyName(target.outputTechnology),
                 string.Empty,
-                target.outputTechnology == 18,
+                IsInternalOutputTechnology(target.outputTechnology),
                 target.targetAvailable != 0,
                 GetPreferredMode(target));
         }
 
+        bool edidValid = (request.flags & TargetDeviceNameEdidIdsValid) != 0;
         return new DisplayTarget(
             request.monitorFriendlyDeviceName,
-            DecodeEdidManufacturer(request.edidManufactureId),
-            request.edidProductCodeId,
+            edidValid ? DecodeEdidManufacturer(request.edidManufactureId) : string.Empty,
+            edidValid ? request.edidProductCodeId : (ushort)0,
             OutputTechnologyName(target.outputTechnology),
-            request.monitorDevicePath,
-             target.outputTechnology is 18 or OutputTechnologyInternalVirtual,
+            edidValid ? request.monitorDevicePath : string.Empty,
+            IsInternalOutputTechnology(target.outputTechnology),
             target.targetAvailable != 0,
             GetPreferredMode(target));
     }
@@ -317,8 +318,16 @@ public sealed class DisplayInventory : ITopologySource
             return (null, null, null, null);
         }
 
-        return (null, request.minScaleRel, request.curScaleRel, request.maxScaleRel);
+        return (
+            ResolveDpiPercent(request.minScaleRel, request.curScaleRel, request.maxScaleRel),
+            request.minScaleRel,
+            request.curScaleRel,
+            request.maxScaleRel);
     }
+
+    /// <summary>Resolves the raw DisplayConfig relative steps through the Windows DPI ladder.</summary>
+    internal static int? ResolveDpiPercent(int minRel, int curRel, int maxRel) =>
+        DpiScale.From(minRel, curRel, maxRel)?.Value?.Current;
 
     /// <summary>Reads the current DEVMODE for a GDI device name.</summary>
     public static DEVMODE? GetCurrentDevMode(string gdiDeviceName)

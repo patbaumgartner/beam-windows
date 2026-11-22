@@ -108,6 +108,73 @@ public class WindowsInteropTests
         Assert.Equal(0u, second.dmPelsWidth);
     }
 
+    [Theory]
+    [InlineData(0x104D, "SHP")]
+    [InlineData(0xAC10, "DEL")]
+    [InlineData(0, "")]
+    public void DecodeEdidManufacturer_ByteSwapsNativeWord(ushort native, string expected)
+    {
+        Assert.Equal(expected, DisplayNative.DecodeEdidManufacturer(native));
+    }
+
+    [Theory]
+    [InlineData(6, true)]  // LVDS
+    [InlineData(11, true)] // DisplayPort embedded
+    [InlineData(13, true)] // UDI embedded
+    [InlineData(18, false)] // DisplayPort USB tunnel (USB-C) is external
+    [InlineData(17, false)] // Indirect virtual
+    [InlineData(10, false)]
+    [InlineData(5, false)]
+    public void IsInternalOutputTechnology_MatchesWingdiClassification(int value, bool expected)
+    {
+        Assert.Equal(expected, DisplayNative.IsInternalOutputTechnology(value));
+    }
+
+    [Fact]
+    public void IsInternalOutputTechnology_InternalConstant_IsTrue()
+    {
+        Assert.True(DisplayNative.IsInternalOutputTechnology(DisplayNative.OutputTechnologyInternalVirtual));
+    }
+
+    [Theory]
+    [InlineData(17, "Indirect virtual")]
+    [InlineData(18, "DisplayPort USB tunnel")]
+    public void OutputTechnologyName_UsesCorrectWingdiValues(int value, string expected)
+    {
+        Assert.Equal(expected, DisplayNative.OutputTechnologyName(value));
+    }
+
+    [Fact]
+    public void OutputTechnologyName_InternalAndForceUdif_UseHighBitConstants()
+    {
+        Assert.Equal("Internal", DisplayNative.OutputTechnologyName(DisplayNative.OutputTechnologyInternalVirtual));
+        Assert.Equal("Force UDIF", DisplayNative.OutputTechnologyName(DisplayNative.OutputTechnologyForceUdif));
+    }
+
+    [Theory]
+    [InlineData(1, "0")]
+    [InlineData(2, "90")]
+    [InlineData(3, "180")]
+    [InlineData(4, "270")]
+    public void RotationName_MatchesDisplayconfigRotation(int value, string expected)
+    {
+        Assert.Equal(expected, DisplayNative.RotationName(value));
+    }
+
+    [Fact]
+    public void SdcFlags_NoOptimizationAndSaveToDatabase_AreDistinct()
+    {
+        Assert.Equal(0x100u, DisplayNative.SdcNoOptimization);
+        Assert.Equal(0x200u, DisplayNative.SdcSaveToDatabase);
+    }
+
+    [Fact]
+    public void ResolveDpiPercent_UsesWindowsLadder()
+    {
+        Assert.Equal(225, DisplayInventory.ResolveDpiPercent(-7, -2, 2));
+        Assert.Null(DisplayInventory.ResolveDpiPercent(int.MinValue, 0, 0));
+    }
+
     // ── WindowsDpiController ────────────────────────────────────────────────────
 
     [Fact]

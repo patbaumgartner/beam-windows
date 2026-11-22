@@ -141,13 +141,13 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
         ? ActiveCloneGroups.Any(g => g.IsClone)
         : CurrentTopologyId == DisplayTopologyId.Clone;
 
-    /// <summary>Groups active paths by source. Groups with more than one path are clones.</summary>
+    /// <summary>Groups active paths by adapter-scoped source. Groups with multiple paths are clones.</summary>
     public IReadOnlyList<CloneGroup> ActiveCloneGroups =>
         ActivePaths
-            .GroupBy(p => p.SourceId)
+            .GroupBy(p => (p.AdapterId, p.SourceId))
             .Select(g => new CloneGroup(
                 g.First().SourceGdiName,
-                g.Key,
+                g.Key.SourceId,
                 g.First().SourceMode,
                 g.ToList()))
             .ToList();
@@ -197,7 +197,7 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
         // Group by desktop identity (source size + position), not source id: on this
         // machine Windows 11 represents "Duplicate" as two sources sharing a desktop.
         var groups = ActivePathsIgnoring(ignoredIdentities)
-            .GroupBy(p => (p.SourceMode?.Width ?? 0, p.SourceMode?.Height ?? 0, p.DesktopX, p.DesktopY))
+            .GroupBy(p => (p.AdapterId, p.SourceMode?.Width ?? 0, p.SourceMode?.Height ?? 0, p.DesktopX, p.DesktopY))
             .Where(g => g.Count() > 1)
             .ToList();
 

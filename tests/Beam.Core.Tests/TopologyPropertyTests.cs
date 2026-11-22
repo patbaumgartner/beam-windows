@@ -16,11 +16,12 @@ public class TopologyPropertyTests
         uint sw, uint sh,      // source mode
         uint tw, uint th,      // target mode
         int x = 0, int y = 0,
-        bool active = true) =>
+        bool active = true,
+        string adapterId = "00000000:00010000") =>
         new(
             $@"\\.\DISPLAY{sourceId + 1}",
             sourceId,
-            "00000000:00010000",
+            adapterId,
             targetId,
             new DisplayTarget($"T{targetId}", "TST", (ushort)(0x1000 + targetId),
                 isInternal ? "Internal" : "HDMI", $@"monitor\{targetId}", isInternal, true),
@@ -79,6 +80,23 @@ public class TopologyPropertyTests
         };
         var t = new DisplayTopology(paths, 0u);
         Assert.False(t.IsMirrored, "two single-path sources under id-0 fallback are not a clone");
+    }
+
+    [Theory]
+    [InlineData(0u)]
+    [InlineData(DisplayTopologyId.Clone)]
+    public void SameSourceIdOnDifferentAdapters_DoesNotFormCloneOrMismatch(uint topologyId)
+    {
+        var paths = new[]
+        {
+            P(0, 1, true, 3840, 2400, 3840, 2400, adapterId: "GPU-A"),
+            P(0, 2, false, 3840, 2400, 3840, 2160, adapterId: "GPU-B"),
+        };
+        var topology = new DisplayTopology(paths, topologyId);
+
+        Assert.Equal(2, topology.ActiveCloneGroups.Count);
+        Assert.All(topology.ActiveCloneGroups, g => Assert.False(g.IsClone));
+        Assert.False(topology.HasMirrorAspectMismatch);
     }
 
     [Fact]
