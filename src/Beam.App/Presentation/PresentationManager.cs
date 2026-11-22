@@ -1253,17 +1253,20 @@ public sealed class PresentationManager : IDisposable
             LogTopology("Topology after restore", "Restore", QueryTopology(), modeError);
 
             // Step 2: put the original DPI scales back (roadmap 1.9).
+            bool dpiRestored = true;
             if (_dpiSnapshot is { Count: > 0 } dpiEntries)
             {
                 Log.Info("Restore Step 2: DPI", "Restore", ("step", "dpi"));
-                RestoreDpi(dpiEntries);
+                dpiRestored = RestoreDpi(dpiEntries);
             }
 
             // Step 3: put Night Light back exactly as it was.
+            bool nightLightRestored = true;
             Log.Info("Restore Step 3: Night Light", "Restore", ("step", "nightLight"));
             if (_nightLightSnapshot is { Count: > 0 } snapshot)
             {
                 NightLightWriteResult nlResult = _nightLight.Restore(snapshot);
+                nightLightRestored = nlResult.Success;
                 Log.Info("Night Light restore result", "Restore",
                     ("step", "nightLight"),
                     ("success", nlResult.Success.ToString()),
@@ -1278,19 +1281,33 @@ public sealed class PresentationManager : IDisposable
 
             // Step 4: undo the B3 presentation extras (best-effort, failure-isolated).
             RestoreExtras();
-
-            // B6: the final Idle status must not report a stale "applied" fix.
-            _appliedSourceMode = null;
-            _appliedDpiPercent = null;
-            _nightLightDisabled = null;
-
             MarkOwnMutation();
+
+            bool restored = modeError is null && dpiRestored && nightLightRestored;
+            overall.Stop();
+            if (!restored)
+            {
+                // Keep every inverse and the crash journal. Returning to Active leaves Undo
+                // armed for an in-process retry and prevents a new apply replacing them.
+                _session.MarkRestoreFailed();
+                Log.Warn("Restore incomplete — recovery journal retained; Undo can be retried.", "Restore",
+                    ("modeError", modeError ?? "none"),
+                    ("dpiRestored", dpiRestored.ToString()),
+                    ("nightLightRestored", nightLightRestored.ToString()),
+                    ("totalMs", overall.ElapsedMilliseconds.ToString()));
+                return;
+            }
+
+            // B6: the final Idle status must not report a stale "applied" fix. Only clear
+            // recovery state after every required restoration was verified.
+            _journal.Clear();
             _nightLightSnapshot = null;
             _dpiSnapshot = null;
             _extras = null;
-            _journal.Clear();
+            _appliedSourceMode = null;
+            _appliedDpiPercent = null;
+            _nightLightDisabled = null;
             _session.MarkIdle();
-            overall.Stop();
             Log.Info("Restore sequence complete", "Restore",
                 ("totalMs", overall.ElapsedMilliseconds.ToString()));
         }
@@ -1298,10 +1315,7 @@ public sealed class PresentationManager : IDisposable
         {
             overall.Stop();
             Log.Exception(ex, "Restore");
-            _nightLightSnapshot = null;
-            _dpiSnapshot = null;
-            _extras = null;
-            _session.MarkIdle();
+            _session.MarkRestoreFailed();
         }
 
         await Task.CompletedTask.ConfigureAwait(false);
@@ -1382,8 +1396,9 @@ public sealed class PresentationManager : IDisposable
     }
 
     /// <summary>Roadmap 1.9: puts the captured original DPI scales back, verifying each write.</summary>
-    private void RestoreDpi(IReadOnlyList<JournalDpiEntry> entries)
+    private bool RestoreDpi(IReadOnlyList<JournalDpiEntry> entries)
     {
+        bool allRestored = true;
         foreach (JournalDpiEntry entry in entries)
         {
             try
@@ -1401,6 +1416,7 @@ public sealed class PresentationManager : IDisposable
 
                 DpiScale? scale = _dpi.Read(path);
                 bool ok = _dpi.SetPercentageAndVerify(path, entry.Percent, scale?.Value);
+                allRestored &= ok;
                 Log.Info("DPI restored", "Restore",
                     ("step", "dpi"),
                     ("adapterId", entry.AdapterId),
@@ -1410,9 +1426,12 @@ public sealed class PresentationManager : IDisposable
             }
             catch (Exception ex)
             {
+                allRestored = false;
                 Log.Exception(ex, "Restore", ("step", "dpi"));
             }
         }
+
+        return allRestored;
     }
 
     /// <summary>

@@ -79,14 +79,14 @@ public class PresentationErrorInjectionTests
     }
 
     [Fact]
-    public async Task FixSequence_ModeControllerThrows_SessionGoesToIdleNotStuck()
+    public async Task FixSequence_ModeControllerThrows_RestoreFailureStaysActiveForRetry()
     {
         var (manager, session, _, journal) = SimpleHarness(mode: new ThrowingModeController());
 
         await manager.ApplyNowAsync();
 
-        // The session unwinds to Idle (never wedged in Applying/Restoring).
-        Assert.Equal(SessionState.Idle, session.State);
+        // Both apply and its unwind failed. Active (not a transient state) keeps Undo armed.
+        Assert.Equal(SessionState.Active, session.State);
 
         // A failed restore intentionally LEAVES the journal active so the next
         // launch retries recovery (JournalStore contract).

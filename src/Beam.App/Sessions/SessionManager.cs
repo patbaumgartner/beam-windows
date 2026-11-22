@@ -135,6 +135,24 @@ public sealed class SessionManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Marks a restore as incomplete. The session returns to Active so Undo remains available
+    /// and a new apply cannot overwrite the still-needed recovery snapshots. Recovery starts
+    /// from Idle, so that state is accepted here too.
+    /// </summary>
+    public void MarkRestoreFailed()
+    {
+        lock (_lock)
+        {
+            if (_state is not (SessionState.Restoring or SessionState.Idle))
+            {
+                return;
+            }
+
+            TransitionTo(SessionState.Active, "restore failed; recovery still armed");
+        }
+    }
+
     /// <summary>User-requested pause — stops applying fixes without undoing an active one.</summary>
     public void Pause()
     {

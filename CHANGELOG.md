@@ -40,8 +40,12 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   when display mode, DPI, or Night Light restoration fails (matching its JSON `success` field),
   and keeps the recovery journal instead of deleting the only retry state. Successful restores
   still clear it.
+- **Tray restore failures remain visible and retryable.** Display-mode, DPI, and Night Light
+  outcomes now gate restore completion. A failed Undo returns to Active with its original
+  snapshots and journal intact instead of reporting Idle and discarding them; a later Undo can
+  retry, and only a fully verified restore clears recovery state and returns to Idle.
 
-Test suite: **871 tests, 0 failed** (Architecture 11, Core 332, Cli 94, Windows 62, App 227,
+Test suite: **876 tests, 0 failed** (Architecture 11, Core 332, Cli 94, Windows 62, App 232,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

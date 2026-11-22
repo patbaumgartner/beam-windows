@@ -76,6 +76,31 @@ public class SessionManagerTests
     }
 
     [Fact]
+    public void MarkRestoreFailed_ReturnsToActiveWithRecoveryArmed()
+    {
+        using var session = new SessionManager();
+        session.TryBeginFix();
+        session.MarkActive();
+        session.RequestRestore();
+
+        session.MarkRestoreFailed();
+
+        Assert.Equal(SessionState.Active, session.State);
+        session.RequestRestore();
+        Assert.Equal(SessionState.Restoring, session.State);
+    }
+
+    [Fact]
+    public void MarkRestoreFailed_DuringRecovery_MovesIdleToActive()
+    {
+        using var session = new SessionManager();
+
+        session.MarkRestoreFailed();
+
+        Assert.Equal(SessionState.Active, session.State);
+    }
+
+    [Fact]
     public void Pause_And_Resume()
     {
         using var session = new SessionManager();

@@ -77,6 +77,7 @@ public class SessionManagerStateMatrixTests
             s.Pause();
             s.Resume();
             s.MarkIdle();
+            s.MarkRestoreFailed();
 
             // Invariant: never wedged in a transient state after the storm.
             Assert.True(
