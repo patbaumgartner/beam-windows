@@ -36,7 +36,12 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   profiles, and first-run toast flag from both serialization and deserialization. In-memory
   tests hid the gap; a full `SettingsStore` round-trip now covers every one of these fields.
 
-Test suite: **869 tests, 0 failed** (Architecture 11, Core 332, Cli 92, Windows 62, App 227,
+- **CLI restore failures are now truthful and retryable.** `beam restore` returns exit code 1
+  when display mode, DPI, or Night Light restoration fails (matching its JSON `success` field),
+  and keeps the recovery journal instead of deleting the only retry state. Successful restores
+  still clear it.
+
+Test suite: **871 tests, 0 failed** (Architecture 11, Core 332, Cli 94, Windows 62, App 227,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

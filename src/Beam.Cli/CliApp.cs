@@ -410,15 +410,19 @@ public sealed class CliApp
         }
 
         string? modeError = _mode.Restore();
-        string dpiMessage = RestoreDpi(dpiEntries);
-        _journal.Clear();
+        (bool dpiSuccess, string dpiMessage) = RestoreDpi(dpiEntries);
+        bool success = modeError is null && nightLight.Success && dpiSuccess;
+        if (success)
+        {
+            _journal.Clear();
+        }
 
         if (options.Json)
         {
             WriteJson(new
             {
                 version = Version,
-                success = modeError is null && nightLight.Success,
+                success,
                 modeError,
                 nightLight = nightLight.Message,
                 dpi = dpiMessage,
@@ -431,7 +435,12 @@ public sealed class CliApp
             _out.WriteLine($"Night Light: {nightLight.Message}");
         }
 
-        return modeError is null ? ExitCodes.Success : ExitCodes.Failure;
+        if (!success)
+        {
+            _error.WriteLine("Restore incomplete; the recovery journal was kept so you can retry.");
+        }
+
+        return success ? ExitCodes.Success : ExitCodes.Failure;
     }
 
     private int Dpi(CliOptions options)
@@ -574,11 +583,11 @@ public sealed class CliApp
     }
 
     /// <summary>Roadmap 1.9: restores the original DPI scales persisted in the journal.</summary>
-    private string RestoreDpi(IReadOnlyList<JournalDpiEntry>? entries)
+    private (bool Success, string Message) RestoreDpi(IReadOnlyList<JournalDpiEntry>? entries)
     {
         if (entries is not { Count: > 0 })
         {
-            return "left unchanged (no captured scale)";
+            return (true, "left unchanged (no captured scale)");
         }
 
         foreach (JournalDpiEntry entry in entries)
@@ -593,11 +602,11 @@ public sealed class CliApp
             DpiScale? scale = _dpi.Read(path);
             if (!_dpi.SetPercentageAndVerify(path, entry.Percent, scale?.Value))
             {
-                return $"restore to {entry.Percent}% NOT verified";
+                return (false, $"restore to {entry.Percent}% NOT verified");
             }
         }
 
-        return $"restored to {string.Join(", ", entries.Select(e => e.Percent + "%"))}";
+        return (true, $"restored to {string.Join(", ", entries.Select(e => e.Percent + "%"))}");
     }
 
     private string ApplyOptimalDpi()

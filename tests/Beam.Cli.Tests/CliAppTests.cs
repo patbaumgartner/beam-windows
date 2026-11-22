@@ -431,16 +431,51 @@ public class CliAppTests
     }
 
     [Fact]
-    public void Restore_Json_SuccessIsFalse_WhenNightLightRestoreFails()
+    public void Restore_Json_FailureReturnsFailure_AndKeepsJournal_WhenNightLightRestoreFails()
     {
         var h = new CliHarness(CliTopologies.Extended());
         h.NightLight.WriteResult = false;
 
         int code = h.Run("restore", "--nightlight", "--json");
 
-        Assert.Equal(ExitCodes.Success, code); // mode restore itself succeeded
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(0, h.Journal.ClearCalls);
         using JsonDocument doc = JsonDocument.Parse(h.Output);
         Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+    }
+
+    [Fact]
+    public void Restore_ModeFailure_ReturnsFailure_AndKeepsJournalForRetry()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        h.Journal.Record = new JournalRecord(true, "cli-apply", "2026-11-22T12:00:00+00:00", null);
+        h.Mode.RestoreResult = "rejected";
+
+        int code = h.Run("restore");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(0, h.Journal.ClearCalls);
+        Assert.True(h.Journal.Record!.IsActive);
+    }
+
+    [Fact]
+    public void Restore_DpiFailure_ReturnsFailure_AndKeepsJournalForRetry()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        h.Journal.Record = new JournalRecord(
+            true,
+            "cli-apply",
+            "2026-11-22T12:00:00+00:00",
+            null,
+            new[] { new JournalDpiEntry("0001594D:00000000", 1, 200) });
+        h.Dpi.SetResult = false;
+
+        int code = h.Run("restore");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(0, h.Journal.ClearCalls);
+        Assert.True(h.Journal.Record!.IsActive);
+        Assert.Contains("NOT verified", h.Output);
     }
 
     [Fact]
