@@ -97,7 +97,7 @@ every build and tag) + docs + hardware matrix (D). Details in
 
 ## Unreleased — post-0.2.0 (2026-11-17)
 
-Green locally (build 0 warnings, **876 tests, 0 failed**); see
+Green locally (build 0 warnings, **879 tests, 0 failed**); see
 [CHANGELOG.md](../../CHANGELOG.md) §Unreleased:
 
 - **Mirror/Extend projector screen** — persisted `ProjectorTopology` setting (Mirror

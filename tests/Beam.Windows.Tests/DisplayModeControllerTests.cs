@@ -182,6 +182,57 @@ public class DisplayModeControllerTests
         Assert.Equal(DisplayNative.SdcTopologyInternal, DisplayModeController.RestoreTopologyFlag(0));
     }
 
+    [Fact]
+    public void TryRestoreMode_RejectedApply_TriesNextRefreshFallback()
+    {
+        var snapshot = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY1", 1920, 1200, 60);
+        var attempts = new List<uint>();
+
+        bool restored = DisplayModeController.TryRestoreMode(snapshot, hz =>
+        {
+            attempts.Add(hz);
+            return hz == 30; // CDS test passed at 60, but the apply was rejected.
+        });
+
+        Assert.True(restored);
+        Assert.Equal(new uint[] { 60, 30 }, attempts);
+    }
+
+    [Fact]
+    public void TryRestoreMode_AllRatesRejected_ReturnsFalseWithoutDuplicatingRates()
+    {
+        var snapshot = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY1", 1920, 1200, 59);
+        var attempts = new List<uint>();
+
+        bool restored = DisplayModeController.TryRestoreMode(snapshot, hz =>
+        {
+            attempts.Add(hz);
+            return false;
+        });
+
+        Assert.False(restored);
+        Assert.Equal(new uint[] { 59, 60, 30 }, attempts);
+    }
+
+    [Fact]
+    public void RestoreSnapshots_RetainsOnlyFailures_AndAttemptsEveryDisplay()
+    {
+        var first = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY1", 1920, 1200, 60);
+        var second = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY2", 1920, 1080, 60);
+        var third = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY3", 1280, 720, 30);
+        var attempted = new List<string>();
+
+        IReadOnlyList<DisplayModeController.DevModeSnapshot> failed =
+            DisplayModeController.RestoreSnapshots(new[] { first, second, third }, snap =>
+            {
+                attempted.Add(snap.GdiName);
+                return snap == second;
+            });
+
+        Assert.Equal(new[] { first.GdiName, second.GdiName, third.GdiName }, attempted);
+        Assert.Equal(new[] { first, third }, failed);
+    }
+
     private static DisplayPath Path(string gdi, uint sourceId, bool isInternal, bool active) =>
         new(gdi, sourceId, "0001594D:00000000", sourceId + 1,
             new DisplayTarget(

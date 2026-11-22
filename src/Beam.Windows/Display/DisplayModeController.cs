@@ -22,7 +22,7 @@ public sealed class DisplayModeController : IDisplayModeController
     private readonly List<DevModeSnapshot> _snapshots = new();
 
     /// <summary>A snapshot of one display's DEVMODE before Beam changed it.</summary>
-    private sealed record DevModeSnapshot(string GdiName, uint Width, uint Height, uint Frequency);
+    internal sealed record DevModeSnapshot(string GdiName, uint Width, uint Height, uint Frequency);
 
     /// <summary>Enters clone (duplicate) mode and switches the shared source to 16:9.</summary>
     /// <param name="preferNative">C1/B2: rank the EDID-native 16:9 mode first (default true).</param>
@@ -353,51 +353,90 @@ public sealed class DisplayModeController : IDisplayModeController
         Log.Info("Restoring captured DEVMODE snapshots", "DisplayMode",
             ("snapshotCount", _snapshots.Count));
 
-        // Restore each captured DEVMODE (the shared source's original resolution).
-        foreach (DevModeSnapshot snap in _snapshots)
+        // Restore each captured DEVMODE. Keep only failures so a manager-level retry
+        // cannot lose their inverse or report the whole topology as restored.
+        List<DevModeSnapshot> failed = RestoreSnapshots(_snapshots, RestoreDevMode).ToList();
+        _snapshots.Clear();
+        _snapshots.AddRange(failed);
+        sw.Stop();
+        if (failed.Count > 0)
         {
-            RestoreDevMode(snap);
+            string displays = string.Join(", ", failed.Select(s => s.GdiName));
+            Log.Error("Restore incomplete: one or more DEVMODE writes failed", "DisplayMode",
+                ("failedDisplays", displays),
+                ("elapsedMs", sw.ElapsedMilliseconds.ToString()));
+            return $"Could not restore the original display mode for: {displays}.";
         }
 
-        _snapshots.Clear();
-        sw.Stop();
         Log.Info("Restore complete", "DisplayMode",
             ("elapsedMs", sw.ElapsedMilliseconds.ToString()));
         return null;
     }
 
-    private void RestoreDevMode(DevModeSnapshot snap)
+    /// <summary>Attempts every snapshot and returns only those that still need a retry.</summary>
+    internal static IReadOnlyList<DevModeSnapshot> RestoreSnapshots(
+        IEnumerable<DevModeSnapshot> snapshots,
+        Func<DevModeSnapshot, bool> tryRestore)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        ArgumentNullException.ThrowIfNull(tryRestore);
+        return snapshots.Where(snap => !tryRestore(snap)).ToList();
+    }
+
+    /// <summary>Tries the original refresh rate, then 60/30 Hz fallbacks, without duplicates.</summary>
+    internal static bool TryRestoreMode(DevModeSnapshot snap, Func<uint, bool> tryRestore)
+    {
+        ArgumentNullException.ThrowIfNull(snap);
+        ArgumentNullException.ThrowIfNull(tryRestore);
+        foreach (uint hz in new[] { snap.Frequency, 60u, 30u }.Distinct())
+        {
+            if (tryRestore(hz))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private bool RestoreDevMode(DevModeSnapshot snap)
     {
         Log.Info("Restoring DEVMODE", "DisplayMode",
             ("gdiName", snap.GdiName),
             ("targetMode", $"{snap.Width}x{snap.Height}@{snap.Frequency}Hz"));
 
-        // Try to restore the original resolution via CDS. Test first.
-        foreach (uint hz in new[] { snap.Frequency, 60u, 30u })
+        bool restored = TryRestoreMode(snap, hz => TryRestoreDevModeAt(snap, hz));
+        if (!restored)
         {
-            var devMode = DisplayInventory.NewDevMode();
-            devMode.dmPelsWidth = snap.Width;
-            devMode.dmPelsHeight = snap.Height;
-            devMode.dmDisplayFrequency = hz;
-            devMode.dmFields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
-
-            int cds = ChangeDisplaySettingsEx(snap.GdiName, ref devMode, IntPtr.Zero, CdsTest, IntPtr.Zero);
-            if (cds != DispChangeSuccessful)
-            {
-                continue;
-            }
-
-            cds = ChangeDisplaySettingsEx(snap.GdiName, ref devMode, IntPtr.Zero, CdsUpdateRegistry, IntPtr.Zero);
-            Log.Info("DEVMODE restored", "DisplayMode",
+            Log.Warn("Could not restore DEVMODE for display (no compatible mode found).", "DisplayMode",
                 ("gdiName", snap.GdiName),
-                ("restoredMode", $"{snap.Width}x{snap.Height}@{hz}Hz"),
-                ("result", cds.ToString()));
-            return; // Best-effort; one try is enough.
+                ("targetMode", $"{snap.Width}x{snap.Height}@{snap.Frequency}Hz"));
         }
 
-        Log.Warn("Could not restore DEVMODE for display (no compatible mode found).", "DisplayMode",
+        return restored;
+    }
+
+    private static bool TryRestoreDevModeAt(DevModeSnapshot snap, uint hz)
+    {
+        var devMode = DisplayInventory.NewDevMode();
+        devMode.dmPelsWidth = snap.Width;
+        devMode.dmPelsHeight = snap.Height;
+        devMode.dmDisplayFrequency = hz;
+        devMode.dmFields = DmPelsWidth | DmPelsHeight | DmDisplayFrequency;
+
+        int cds = ChangeDisplaySettingsEx(snap.GdiName, ref devMode, IntPtr.Zero, CdsTest, IntPtr.Zero);
+        if (cds != DispChangeSuccessful)
+        {
+            return false;
+        }
+
+        cds = ChangeDisplaySettingsEx(snap.GdiName, ref devMode, IntPtr.Zero, CdsUpdateRegistry, IntPtr.Zero);
+        Log.Info("DEVMODE restore apply", "DisplayMode",
             ("gdiName", snap.GdiName),
-            ("targetMode", $"{snap.Width}x{snap.Height}@{snap.Frequency}Hz"));
+            ("restoredMode", $"{snap.Width}x{snap.Height}@{hz}Hz"),
+            ("result", cds.ToString()),
+            ("success", (cds == DispChangeSuccessful).ToString()));
+        return cds == DispChangeSuccessful;
     }
 
     private void CaptureSnapshots()
