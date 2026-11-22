@@ -66,6 +66,58 @@ public class ConnectionSnapshotTests
         Assert.False(a.SameDisplayIds(other));
     }
 
+    [Theory]
+    [InlineData("sourceMode")]
+    [InlineData("scale")]
+    [InlineData("friendlyName")]
+    [InlineData("targetId")]
+    [InlineData("targetIdentity")]
+    [InlineData("targetMode")]
+    [InlineData("position")]
+    public void ConnectionSnapshot_SameConfiguration_DetectsDisplayPropertyChanges(string property)
+    {
+        var display = new DisplaySnapshot(
+            new DisplayId("adapter", 0), 1920, 1080, 100, "Projector",
+            42, @"monitor\DELL", 1920, 1080, -1920, 0);
+        DisplaySnapshot changed = property switch
+        {
+            "sourceMode" => display with { Width = 3840, Height = 2400 },
+            "scale" => display with { ScalePercent = 150 },
+            "friendlyName" => display with { FriendlyName = "Different projector" },
+            "targetId" => display with { TargetId = 43 },
+            "targetIdentity" => display with { TargetIdentity = @"monitor\EPSON" },
+            "targetMode" => display with { TargetWidth = 3840, TargetHeight = 2160 },
+            "position" => display with { DesktopX = 0 },
+            _ => throw new ArgumentOutOfRangeException(nameof(property)),
+        };
+        var before = new ConnectionSnapshot(new[] { display }, DateTimeOffset.UtcNow, DisplayTopologyId.Clone);
+        var after = new ConnectionSnapshot(new[] { changed }, DateTimeOffset.UtcNow, DisplayTopologyId.Clone);
+
+        Assert.True(before.SameDisplayIds(after)); // identity-only comparison stays available
+        Assert.False(before.SameConfiguration(after));
+    }
+
+    [Fact]
+    public void ConnectionSnapshot_SameConfiguration_DetectsTopologyOnlyChange()
+    {
+        var displays = new[] { new DisplaySnapshot(default, 1920, 1080, 100, "A") };
+        var before = new ConnectionSnapshot(displays, DateTimeOffset.UtcNow, DisplayTopologyId.Extend);
+        var after = new ConnectionSnapshot(displays, DateTimeOffset.UtcNow, DisplayTopologyId.Clone);
+
+        Assert.False(before.SameConfiguration(after));
+    }
+
+    [Fact]
+    public void ConnectionSnapshot_SameConfiguration_IgnoresOrderAndTimestamp()
+    {
+        var first = new DisplaySnapshot(new DisplayId("A", 0), 1920, 1080, 100, "A", 1);
+        var second = new DisplaySnapshot(new DisplayId("B", 0), 1280, 720, 125, "B", 2);
+        var before = new ConnectionSnapshot(new[] { first, second }, DateTimeOffset.UtcNow, DisplayTopologyId.Extend);
+        var after = new ConnectionSnapshot(new[] { second, first }, DateTimeOffset.UtcNow.AddMinutes(5), DisplayTopologyId.Extend);
+
+        Assert.True(before.SameConfiguration(after));
+    }
+
     [Fact]
     public void ConnectionSnapshot_AgeSince_Computes()
     {

@@ -44,6 +44,27 @@ public class DisplayMonitorResilienceTests
     }
 
     [Fact]
+    public async Task Capture_StartupFailure_FirstSuccessfulPollSetsCurrentBaseline()
+    {
+        int calls = 0;
+        using var monitor = new DisplayMonitor(
+            () => Interlocked.Increment(ref calls) <= 2
+                ? throw new InvalidOperationException("display config still settling")
+                : Snapshot("A"),
+            TimeSpan.FromMilliseconds(10));
+
+        monitor.Start();
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (monitor.Current is null && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        Assert.NotNull(monitor.Current);
+        Assert.Equal("A", monitor.Current!.Displays[0].Id.AdapterId);
+    }
+
+    [Fact]
     public async Task Capture_AlwaysThrows_NeverRaisesChanged_KeepsPolling()
     {
         int calls = 0;

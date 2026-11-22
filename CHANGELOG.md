@@ -55,8 +55,13 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   flushed to disk, and surfaced on failure instead of silently swallowed. Tray and CLI apply
   abort before changing any setting when persistence fails; the CLI reports a structured JSON
   error when requested, and an existing journal is preserved for recovery.
+- **Display-only changes are now detected.** The monitor compares topology, source/target
+  modes, DPI, target identity, and desktop position instead of only adapter/source IDs. Mode,
+  resolution, same-source target replacement, and Extend ↔ Duplicate changes now raise an
+  event; identical polls remain silent. A failed startup capture also publishes its first
+  successful baseline through `Current`.
 
-Test suite: **883 tests, 0 failed** (Architecture 11, Core 332, Cli 95, Windows 65, App 235,
+Test suite: **894 tests, 0 failed** (Architecture 11, Core 341, Cli 95, Windows 67, App 235,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

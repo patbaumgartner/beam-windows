@@ -12,10 +12,33 @@ namespace Beam.Core.Display;
 /// </remarks>
 public sealed record ConnectionSnapshot(
     IReadOnlyList<DisplaySnapshot> Displays,
-    DateTimeOffset TakenAt)
+    DateTimeOffset TakenAt,
+    uint TopologyId = 0)
 {
     /// <summary>The elapsed time since <see cref="TakenAt"/>.</summary>
     public TimeSpan AgeSince(DateTimeOffset now) => now - TakenAt;
+
+    /// <summary>
+    /// True when the complete display configuration is equivalent (order-insensitive).
+    /// Unlike <see cref="SameDisplayIds"/>, this also detects mode, DPI, target, position,
+    /// and topology-only changes. <see cref="TakenAt"/> is deliberately excluded.
+    /// </summary>
+    public bool SameConfiguration(ConnectionSnapshot? other)
+    {
+        if (other is null || TopologyId != other.TopologyId || !SameDisplayIds(other))
+        {
+            return false;
+        }
+
+        static IOrderedEnumerable<DisplaySnapshot> Ordered(IEnumerable<DisplaySnapshot> displays) =>
+            displays
+                .OrderBy(d => d.Id.AdapterId, StringComparer.Ordinal)
+                .ThenBy(d => d.Id.SourceId)
+                .ThenBy(d => d.TargetId)
+                .ThenBy(d => d.TargetIdentity, StringComparer.Ordinal);
+
+        return Ordered(Displays).SequenceEqual(Ordered(other.Displays));
+    }
 
     /// <summary>True when another snapshot has the same active set (order-insensitive).</summary>
     public bool SameDisplayIds(ConnectionSnapshot? other)
@@ -51,7 +74,13 @@ public sealed record DisplaySnapshot(
     uint Width,
     uint Height,
     int ScalePercent,
-    string? FriendlyName)
+    string? FriendlyName,
+    uint? TargetId = null,
+    string? TargetIdentity = null,
+    uint TargetWidth = 0,
+    uint TargetHeight = 0,
+    int DesktopX = 0,
+    int DesktopY = 0)
 {
     /// <summary>Width / height as double; NaN when height is 0.</summary>
     public double AspectRatio() => Width / (double)Height;

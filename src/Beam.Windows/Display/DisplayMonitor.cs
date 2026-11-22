@@ -95,7 +95,16 @@ public sealed class DisplayMonitor : IDisplayChangeSource, IDisposable
                 lock (_sync)
                 {
                     current = _capture();
-                    if (_last is null || current.SameDisplayIds(_last))
+                    if (_last is null)
+                    {
+                        // If Start's first capture failed, the first successful poll is
+                        // the baseline for both diffing and the public Current property.
+                        _last = current;
+                        Current = current;
+                        continue;
+                    }
+
+                    if (current.SameConfiguration(_last))
                     {
                         _last = current;
                         continue;

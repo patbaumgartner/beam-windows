@@ -75,8 +75,14 @@ public sealed class DisplayInventory : ITopologySource
             p.SourceMode?.Width ?? 0,
             p.SourceMode?.Height ?? 0,
             p.DpiPercent ?? 0,
-            p.Target.FriendlyName)).ToArray();
-        return new ConnectionSnapshot(displays, DateTimeOffset.UtcNow);
+            p.Target.FriendlyName,
+            p.TargetId,
+            p.Target.Identity,
+            p.TargetMode?.Width ?? 0,
+            p.TargetMode?.Height ?? 0,
+            p.DesktopX,
+            p.DesktopY)).ToArray();
+        return new ConnectionSnapshot(displays, DateTimeOffset.UtcNow, topology.CurrentTopologyId);
     }
 
     /// <summary>

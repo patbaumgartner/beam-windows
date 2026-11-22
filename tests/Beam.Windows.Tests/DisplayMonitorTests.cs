@@ -96,6 +96,25 @@ public class DisplayMonitorTests
     }
 
     [Fact]
+    public async Task ModeOnlyChange_WithSameIds_RaisesExactlyOneEvent()
+    {
+        ConnectionSnapshot current = Snapshot("A");
+        using var monitor = new DisplayMonitor(() => current, TimeSpan.FromMilliseconds(10));
+        int events = 0;
+        monitor.Changed += (_, _) => Interlocked.Increment(ref events);
+        monitor.Start();
+
+        current = new ConnectionSnapshot(
+            current.Displays.Select(d => d with { Width = 3840, Height = 2400 }).ToArray(),
+            DateTimeOffset.UtcNow,
+            DisplayTopologyId.Clone);
+
+        await WaitUntilAsync(() => Volatile.Read(ref events) == 1);
+        await Task.Delay(60);
+        Assert.Equal(1, Volatile.Read(ref events));
+    }
+
+    [Fact]
     public async Task Change_UpdatesLatencyAndRaisesLatencyUpdated()
     {
         ConnectionSnapshot current = Snapshot("A");
