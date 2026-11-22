@@ -31,6 +31,10 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   (lock around tmp-write + rename), and the known-devices check-then-act in
   `PresentationManager` (`RecordKnownDevices` / `SetDeviceAutoApply` / `ForgetDevice`) is guarded
   by a lock, so a device is recorded exactly once per connect burst.
+- **All Settings values now survive a real restart.** The on-disk store previously omitted
+  the pause preset, restore-on-disconnect, fixed DPI target, prefer-native mode, known-device
+  profiles, and first-run toast flag from both serialization and deserialization. In-memory
+  tests hid the gap; a full `SettingsStore` round-trip now covers every one of these fields.
 
 Test suite: **869 tests, 0 failed** (Architecture 11, Core 332, Cli 92, Windows 62, App 227,
 Tray 145) — was 826 at the issue-#1 fix.

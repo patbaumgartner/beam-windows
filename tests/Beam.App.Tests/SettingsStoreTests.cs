@@ -55,6 +55,15 @@ public class SettingsStoreTests : IDisposable
             DoNotDisturb = false,
             IgnoredDisplays = new[] { @"monitor\DELL", @"monitor\EPS" },
             Hotkey = "Win+Alt+O",
+            TimedPauseMinutes = 60,
+            RestoreOnDisconnect = false,
+            DpiTargetPercent = 175,
+            PreferNativeMode = false,
+            KnownDevices = new[]
+            {
+                new DeviceProfile(@"monitor\DELL", "DELL U2718Q", false, "2026-11-22T12:00:00+00:00"),
+            },
+            FirstRunToastShown = true,
             ProjectorTopology = "Extend",
         };
 
@@ -71,6 +80,13 @@ public class SettingsStoreTests : IDisposable
         Assert.Equal(settings.AudioToHdmi, loaded.AudioToHdmi);
         Assert.Equal(settings.IgnoredDisplays, loaded.IgnoredDisplays); // xunit compares sequences structurally
         Assert.Equal(settings.Hotkey, loaded.Hotkey);
+        Assert.Equal(settings.TimedPauseMinutes, loaded.TimedPauseMinutes);
+        Assert.Equal(settings.RestoreOnDisconnect, loaded.RestoreOnDisconnect);
+        Assert.Equal(settings.DpiTargetPercent, loaded.DpiTargetPercent);
+        Assert.Equal(settings.PreferNativeMode, loaded.PreferNativeMode);
+        DeviceProfile device = Assert.Single(loaded.KnownDevices ?? Array.Empty<DeviceProfile>());
+        Assert.Equal(settings.KnownDevices![0], device);
+        Assert.Equal(settings.FirstRunToastShown, loaded.FirstRunToastShown);
         Assert.Equal("Extend", loaded.ProjectorTopology);
     }
 

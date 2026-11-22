@@ -112,6 +112,12 @@ public sealed class SettingsStore : ISettingsStore
                 AudioToHdmi: GetBool(obj, nameof(BeamSettings.AudioToHdmi), BeamSettings.Defaults.AudioToHdmi),
                 IgnoredDisplays: GetStringList(obj, nameof(BeamSettings.IgnoredDisplays)),
                 Hotkey: GetString(obj, nameof(BeamSettings.Hotkey), BeamSettings.Defaults.Hotkey),
+                TimedPauseMinutes: GetNullableInt(obj, nameof(BeamSettings.TimedPauseMinutes), BeamSettings.Defaults.TimedPauseMinutes),
+                RestoreOnDisconnect: GetBool(obj, nameof(BeamSettings.RestoreOnDisconnect), BeamSettings.Defaults.RestoreOnDisconnect),
+                DpiTargetPercent: GetInt(obj, nameof(BeamSettings.DpiTargetPercent), BeamSettings.Defaults.DpiTargetPercent),
+                PreferNativeMode: GetBool(obj, nameof(BeamSettings.PreferNativeMode), BeamSettings.Defaults.PreferNativeMode),
+                KnownDevices: GetDeviceProfiles(obj, nameof(BeamSettings.KnownDevices)),
+                FirstRunToastShown: GetBool(obj, nameof(BeamSettings.FirstRunToastShown), BeamSettings.Defaults.FirstRunToastShown),
                 ProjectorTopology: GetString(obj, nameof(BeamSettings.ProjectorTopology), BeamSettings.Defaults.ProjectorTopology));
 
             _raw = obj;
@@ -151,6 +157,15 @@ public sealed class SettingsStore : ISettingsStore
                 obj[nameof(BeamSettings.IgnoredDisplays)] = new JsonArray(
                     settings.IgnoredDisplays.Select(i => (JsonNode?)JsonValue.Create(i)).ToArray());
                 obj[nameof(BeamSettings.Hotkey)] = settings.Hotkey;
+                obj[nameof(BeamSettings.TimedPauseMinutes)] = settings.TimedPauseMinutes is int pauseMinutes
+                    ? JsonValue.Create(pauseMinutes)
+                    : null;
+                obj[nameof(BeamSettings.RestoreOnDisconnect)] = settings.RestoreOnDisconnect;
+                obj[nameof(BeamSettings.DpiTargetPercent)] = settings.DpiTargetPercent;
+                obj[nameof(BeamSettings.PreferNativeMode)] = settings.PreferNativeMode;
+                obj[nameof(BeamSettings.KnownDevices)] = JsonSerializer.SerializeToNode(
+                    settings.KnownDevices ?? Array.Empty<DeviceProfile>());
+                obj[nameof(BeamSettings.FirstRunToastShown)] = settings.FirstRunToastShown;
                 obj[nameof(BeamSettings.ProjectorTopology)] = settings.ProjectorTopology;
 
                 string json = obj.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
@@ -179,6 +194,49 @@ public sealed class SettingsStore : ISettingsStore
     {
         JsonNode? node = obj[key];
         return node is null ? fallback : node.GetValue<string>();
+    }
+
+    private static int GetInt(JsonObject obj, string key, int fallback)
+    {
+        JsonNode? node = obj[key];
+        return node is null ? fallback : node.GetValue<int>();
+    }
+
+    private static int? GetNullableInt(JsonObject obj, string key, int? fallback)
+    {
+        JsonNode? node = obj[key];
+        return node is null ? fallback : node.GetValue<int>();
+    }
+
+    private static IReadOnlyList<DeviceProfile> GetDeviceProfiles(JsonObject obj, string key)
+    {
+        if (obj[key] is not JsonArray arr)
+        {
+            return Array.Empty<DeviceProfile>();
+        }
+
+        var list = new List<DeviceProfile>(arr.Count);
+        foreach (JsonNode? item in arr)
+        {
+            if (item is not JsonObject device)
+            {
+                continue;
+            }
+
+            string identity = GetString(device, nameof(DeviceProfile.Identity), string.Empty);
+            if (string.IsNullOrEmpty(identity))
+            {
+                continue;
+            }
+
+            list.Add(new DeviceProfile(
+                identity,
+                GetString(device, nameof(DeviceProfile.FriendlyName), identity),
+                GetBool(device, nameof(DeviceProfile.AutoApply), fallback: true),
+                GetString(device, nameof(DeviceProfile.FirstSeenUtc), string.Empty)));
+        }
+
+        return list;
     }
 
     private static IReadOnlyList<string> GetStringList(JsonObject obj, string key)
