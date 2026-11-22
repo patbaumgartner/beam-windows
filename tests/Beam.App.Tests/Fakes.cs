@@ -176,6 +176,8 @@ internal sealed class FakeDpiController : IDpiController
     public DpiScale? ReadResult { get; set; }
     public bool SetResult { get; set; } = true;
     public List<int> RequestedPercents { get; } = new();
+    public DisplayPath? LastReadPath { get; private set; }
+    public DisplayPath? LastSetPath { get; private set; }
 
     /// <summary>Optional hook invoked at the start of every call (kill-injection in soak tests).</summary>
     public Action? BeforeCall { get; set; }
@@ -183,12 +185,14 @@ internal sealed class FakeDpiController : IDpiController
     public DpiScale? Read(DisplayPath path)
     {
         BeforeCall?.Invoke();
+        LastReadPath = path;
         return ReadResult;
     }
 
     public bool SetPercentageAndVerify(DisplayPath path, int percent, DpiScaleValue? current = null)
     {
         BeforeCall?.Invoke();
+        LastSetPath = path;
         RequestedPercents.Add(percent);
         return SetResult;
     }

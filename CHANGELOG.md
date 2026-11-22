@@ -60,8 +60,12 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   resolution, same-source target replacement, and Extend ↔ Duplicate changes now raise an
   event; identical polls remain silent. A failed startup capture also publishes its first
   successful baseline through `Current`.
+- **Extend mode now changes projector DPI, not laptop DPI.** Source selection is shared by
+  pre-apply capture, DPI application, live status, journalling, and restore. The external source
+  is used in Extend even when the internal panel is enumerated first; Mirror and single-display
+  simulated presentation retain their previous source selection.
 
-Test suite: **894 tests, 0 failed** (Architecture 11, Core 341, Cli 95, Windows 67, App 235,
+Test suite: **895 tests, 0 failed** (Architecture 11, Core 341, Cli 95, Windows 67, App 236,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

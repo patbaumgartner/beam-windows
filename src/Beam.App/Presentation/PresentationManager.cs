@@ -1101,7 +1101,7 @@ public sealed class PresentationManager : IDisposable
 
                     // B6: remember what the fix applied so the live status can report it.
                     // Reuse the settled topology from the verify — no extra query needed.
-                    DisplayPath? appliedShared = afterMode.ActivePaths.FirstOrDefault();
+                    DisplayPath? appliedShared = SelectPresentationSource(afterMode);
                     _appliedSourceMode = appliedShared?.SourceMode is { } sm
                         ? $"{sm.Width}x{sm.Height}@{sm.RefreshHz:0}"
                         : null;
@@ -1190,7 +1190,7 @@ public sealed class PresentationManager : IDisposable
         try
         {
             DisplayTopology topology = QueryTopology();
-            DisplayPath? sharedSource = topology.ActivePaths.FirstOrDefault();
+            DisplayPath? sharedSource = SelectPresentationSource(topology);
             if (sharedSource is null)
             {
                 Log.Warn("DPI: no active source found.", "Fix", ("step", "dpi"));
@@ -1406,6 +1406,22 @@ public sealed class PresentationManager : IDisposable
     }
 
     /// <summary>
+    /// Selects the source whose mode/DPI Beam owns. Extend has independent desktops, so the
+    /// external projector must be used rather than the first (usually internal) active path.
+    /// Mirror shares one source; single-display simulation keeps the sole internal source.
+    /// </summary>
+    private DisplayPath? SelectPresentationSource(DisplayTopology topology)
+    {
+        IReadOnlyList<DisplayPath> active = topology.ActivePaths;
+        if (_projectorTopology == PresentationTopology.Extend)
+        {
+            return active.FirstOrDefault(p => !p.Target.IsInternal) ?? active.FirstOrDefault();
+        }
+
+        return active.FirstOrDefault();
+    }
+
+    /// <summary>
     /// Roadmap 1.9: captures the current DPI percent of the shared source before any
     /// mutation, so restore can put it back and the journal can persist it for crash recovery.
     /// </summary>
@@ -1413,7 +1429,7 @@ public sealed class PresentationManager : IDisposable
     {
         try
         {
-            DisplayPath? sharedSource = QueryTopology().ActivePaths.FirstOrDefault();
+            DisplayPath? sharedSource = SelectPresentationSource(QueryTopology());
             if (sharedSource is null)
             {
                 return null;
