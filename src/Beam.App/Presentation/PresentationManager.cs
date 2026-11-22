@@ -66,6 +66,9 @@ public sealed class PresentationManager : IDisposable
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<NightLightSnapshot>? _nightLightSnapshot;
     private IReadOnlyList<JournalDpiEntry>? _dpiSnapshot;
+    private bool _modeChangeAttempted;
+    private bool _dpiChangeAttempted;
+    private bool _nightLightChangeAttempted;
     private Task _pending = Task.CompletedTask;
     private DateTimeOffset _lastOwnMutationUtc = DateTimeOffset.MinValue;
     private int _consecutiveFailures;
@@ -942,6 +945,11 @@ public sealed class PresentationManager : IDisposable
         // put both back exactly (roadmap 1.9: DPI restore from the crash journal).
         _nightLightSnapshot = JournalStore.RehydrateNightLight(journal);
         _dpiSnapshot = JournalStore.RehydrateDpi(journal);
+        // Legacy journals have no per-step phase information. Preserve their established
+        // recovery behavior; normal in-process restores use the more precise attempted flags.
+        _modeChangeAttempted = true;
+        _dpiChangeAttempted = _dpiSnapshot is { Count: > 0 };
+        _nightLightChangeAttempted = _nightLightSnapshot is { Count: > 0 };
 
         // B3: rehydrate the extras previous-state so crash recovery also undoes
         // keep-awake / DND / audio exactly as they were before the interrupted fix.
@@ -966,6 +974,9 @@ public sealed class PresentationManager : IDisposable
         }
 
         var overall = Stopwatch.StartNew();
+        _modeChangeAttempted = false;
+        _dpiChangeAttempted = false;
+        _nightLightChangeAttempted = false;
         try
         {
             // Step 1: Night Light OFF (policy-gated: UseNightLight).
@@ -984,9 +995,9 @@ public sealed class PresentationManager : IDisposable
                 _nightLightSnapshot = null;
             }
 
-            // Roadmap 1.9: capture the original DPI scale before any mutation, so restore
-            // (and crash recovery from the journal) can put it back exactly.
-            _dpiSnapshot = CaptureDpi();
+            // Roadmap 1.9: capture the original DPI scale only when Beam will control it.
+            // A disabled policy must not make Undo write a value Beam never changed.
+            _dpiSnapshot = UseDpi ? CaptureDpi() : null;
 
             // B3: capture the previous extras state (toasts, default audio endpoint) BEFORE
             // any mutation, so the journal — and therefore crash recovery — can undo each
@@ -999,6 +1010,7 @@ public sealed class PresentationManager : IDisposable
 
             if (UseNightLight)
             {
+                _nightLightChangeAttempted = true;
                 NightLightWriteResult nlResult = _nightLight.SetActive(active: false);
                 MarkOwnMutation();
                 _nightLightDisabled = nlResult.Success; // B6: reported in the live status
@@ -1037,6 +1049,7 @@ public sealed class PresentationManager : IDisposable
                         "Fix", ("step", "displayMode"), ("projectorTopology", _projectorTopology.ToString()));
                     LogTopology("Topology before mode change", "Fix", beforeMode);
 
+                    _modeChangeAttempted = true;
                     modeError = extend
                         ? _mode.ApplyExtendWith16x9(_preferNativeMode) // C1: prefer-native policy
                         : _mode.ApplyCloneWith16x9(_preferNativeMode);
@@ -1214,6 +1227,7 @@ public sealed class PresentationManager : IDisposable
                 return;
             }
 
+            _dpiChangeAttempted = true;
             bool applied = _dpi.SetPercentageAndVerify(sharedSource, targetPercent, scale.Value);
             if (applied)
             {
@@ -1244,17 +1258,26 @@ public sealed class PresentationManager : IDisposable
         {
             Log.Info("Restore sequence starting", "Restore");
 
-            // Step 1: return to the extended topology and the captured source modes.
-            Log.Info("Restore Step 1: Display mode", "Restore", ("step", "displayMode"));
-            LogTopology("Topology before restore", "Restore", QueryTopology());
+            // Step 1: restore display mode only when Beam actually attempted to change it.
+            // Simulated presentation, UseMode=false, and pre-mutation failures must not
+            // unexpectedly switch the user's topology during Undo/error unwinding.
+            string? modeError = null;
+            if (_modeChangeAttempted)
+            {
+                Log.Info("Restore Step 1: Display mode", "Restore", ("step", "displayMode"));
+                LogTopology("Topology before restore", "Restore", QueryTopology());
+                modeError = _mode.Restore();
+                LogTopology("Topology after restore", "Restore", QueryTopology(), modeError);
+            }
+            else
+            {
+                Log.Info("Restore Step 1 skipped: Beam did not change display mode.", "Restore",
+                    ("step", "displayMode"));
+            }
 
-            string? modeError = _mode.Restore();
-
-            LogTopology("Topology after restore", "Restore", QueryTopology(), modeError);
-
-            // Step 2: put the original DPI scales back (roadmap 1.9).
+            // Step 2: put back DPI only when Beam attempted a scale write.
             bool dpiRestored = true;
-            if (_dpiSnapshot is { Count: > 0 } dpiEntries)
+            if (_dpiChangeAttempted && _dpiSnapshot is { Count: > 0 } dpiEntries)
             {
                 Log.Info("Restore Step 2: DPI", "Restore", ("step", "dpi"));
                 dpiRestored = RestoreDpi(dpiEntries);
@@ -1263,7 +1286,7 @@ public sealed class PresentationManager : IDisposable
             // Step 3: put Night Light back exactly as it was.
             bool nightLightRestored = true;
             Log.Info("Restore Step 3: Night Light", "Restore", ("step", "nightLight"));
-            if (_nightLightSnapshot is { Count: > 0 } snapshot)
+            if (_nightLightChangeAttempted && _nightLightSnapshot is { Count: > 0 } snapshot)
             {
                 NightLightWriteResult nlResult = _nightLight.Restore(snapshot);
                 nightLightRestored = nlResult.Success;
@@ -1303,6 +1326,9 @@ public sealed class PresentationManager : IDisposable
             _journal.Clear();
             _nightLightSnapshot = null;
             _dpiSnapshot = null;
+            _modeChangeAttempted = false;
+            _dpiChangeAttempted = false;
+            _nightLightChangeAttempted = false;
             _extras = null;
             _appliedSourceMode = null;
             _appliedDpiPercent = null;

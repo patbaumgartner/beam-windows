@@ -48,8 +48,11 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   tries the remaining refresh-rate fallbacks, every display is attempted, and failed snapshots
   remain available for retry. `DisplayModeController.Restore` returns an error instead of
   clearing those snapshots and claiming completion.
+- **Undo now restores only what Beam actually changed.** Simulated presentation no longer
+  switches topology on Undo; disabled mode/DPI/Night Light policies no longer cause restoration
+  writes; and a failure before the first mutation no longer invokes a blind display restore.
 
-Test suite: **879 tests, 0 failed** (Architecture 11, Core 332, Cli 94, Windows 65, App 232,
+Test suite: **880 tests, 0 failed** (Architecture 11, Core 332, Cli 94, Windows 65, App 233,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

@@ -31,7 +31,7 @@ public class Phase1SettingsAndDpiTests
     [Fact]
     public async Task RestoreNow_PutsOriginalDpiBack()
     {
-        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        using var h = new PresentationHarness(Topologies.MirroredNeedScale(), ScaleAt200);
         await h.Manager.ApplyNowAsync();
         h.Dpi.RequestedPercents.Clear();
 
@@ -46,7 +46,7 @@ public class Phase1SettingsAndDpiTests
     [Fact]
     public async Task DisconnectWhileActive_RestoresOriginalDpi()
     {
-        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        using var h = new PresentationHarness(Topologies.MirroredNeedScale(), ScaleAt200);
         await h.Manager.ApplyNowAsync();
         h.Dpi.RequestedPercents.Clear();
 
@@ -133,6 +133,11 @@ public class Phase1SettingsAndDpiTests
 
         Assert.Equal(SessionState.Active, h.Session.State);
         Assert.Equal(0, h.Mode.ApplyCalls);
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(0, h.Mode.RestoreCalls); // Undo must not change what Apply never touched.
     }
 
     [Fact]
@@ -145,6 +150,11 @@ public class Phase1SettingsAndDpiTests
 
         Assert.Equal(SessionState.Active, h.Session.State);
         Assert.Empty(h.Dpi.RequestedPercents);
+        Assert.Null(h.Journal.LastDpi);
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Empty(h.Dpi.RequestedPercents); // no capture and no restoration write
     }
 
     [Fact]
@@ -158,6 +168,10 @@ public class Phase1SettingsAndDpiTests
         Assert.Equal(SessionState.Active, h.Session.State);
         Assert.Equal(0, h.NightLight.SetActiveCalls);
         Assert.Equal(0, h.NightLight.SnapshotCalls);
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Equal(0, h.NightLight.RestoreCalls);
     }
 
     [Fact]

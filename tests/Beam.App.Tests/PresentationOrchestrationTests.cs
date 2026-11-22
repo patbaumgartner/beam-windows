@@ -313,6 +313,7 @@ public class PresentationOrchestrationTests
         await h.Manager.RestoreNowAsync();
 
         Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(0, h.Mode.RestoreCalls);       // topology was never changed
         Assert.Equal(1, h.NightLight.RestoreCalls); // Night Light restored
         Assert.Equal(1, h.KeepAwake.ReleaseCalls);
         Assert.Contains(true, h.Dnd.Requested);     // toasts re-enabled

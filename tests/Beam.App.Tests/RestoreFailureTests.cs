@@ -62,7 +62,7 @@ public class RestoreFailureTests
     [Fact]
     public async Task DpiRestoreFailure_KeepsActiveJournal_AndRetryCanComplete()
     {
-        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        using var h = new PresentationHarness(Topologies.MirroredNeedScale(), ScaleAt200);
         await h.Manager.ApplyNowAsync();
         h.Dpi.SetResult = false;
 
