@@ -236,7 +236,7 @@ Every pull request runs the same gates locally and in CI:
 | Tests | `dotnet test Beam.sln -c Release` | 967 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
-| Mutation | `pwsh eng/mutation-test.ps1` | zero surviving mutants (weak tests / dead code flagged) |
+| Mutation | `pwsh eng/mutation-test.ps1 -MaxMutants 50` | zero surviving mutants; broken/missing baselines fail closed |
 | Docs | `pwsh eng/check-links.ps1` | every relative Markdown link resolves |
 
 Windows and Tray coverage is reported for visibility but not gated: those assemblies are

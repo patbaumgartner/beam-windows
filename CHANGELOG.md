@@ -107,6 +107,10 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   DPI ladder values are checked before locks or hardware access. Option-looking `--device` values
   are rejected, unsupported DPI reads return exit code 4, and parser/usage/device/unexpected
   failures emit one structured `success:false` JSON object whenever `--json` was requested.
+- **Quality gates now fail closed.** All projects treat warnings as errors; missing gated
+  coverage fails; broken mutation baselines and stale/missing/empty reports fail instead of
+  producing a false pass. Mutation child output drains concurrently, and CI actually runs 50
+  mutants each for Core and App (with snapshots and stable releases gated on the result).
 
 Test suite: **967 tests, 0 failed** (Architecture 11, Core 346, Cli 109, Windows 91, App 249,
 Tray 161) — was 826 at the issue-#1 fix.

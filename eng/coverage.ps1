@@ -103,6 +103,9 @@ try {
 
         if ($s.Total -eq 0) {
             Write-Output ('{0,-14} {1,8}' -f $name, 'no data')
+            if ($thresholds.ContainsKey($name)) {
+                $failures += ('{0}: no coverage data' -f $name)
+            }
             continue
         }
 

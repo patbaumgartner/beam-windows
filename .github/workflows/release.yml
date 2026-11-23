@@ -22,7 +22,7 @@ jobs:
   release:
     name: Build release artifacts
     runs-on: windows-latest
-    timeout-minutes: 25
+    timeout-minutes: 60
     steps:
       - name: Checkout requested tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -43,6 +43,7 @@ jobs:
           dotnet build Beam.sln -c Release --no-restore
           dotnet test Beam.sln -c Release --no-build --collect:"XPlat Code Coverage"
           ./eng/coverage.ps1 -NoTest -Enforce
+          ./eng/mutation-test.ps1 -MaxMutants 50
           ./eng/check-links.ps1
 
       - name: Resolve version and verify tag provenance

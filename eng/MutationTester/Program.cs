@@ -155,7 +155,7 @@ internal sealed class MutationRunner
             var testBuild = BuildProject(_testProj);
             if (!testBuild.Success)
             {
-                Console.Error.WriteLine($"Failed to build test project: {testBuild.Output}");
+                throw new InvalidOperationException($"Failed to build test project: {testBuild.Output}");
             }
 
             var csFiles = Directory.GetFiles(_srcDir, "*.cs", SearchOption.AllDirectories)
@@ -390,14 +390,16 @@ internal sealed class MutationRunner
             WorkingDirectory = _repoRoot,
         };
         var proc = Process.Start(psi)!;
-        // Enforce a real timeout: ReadToEnd first would block forever on a hung child,
-        // so wait first, kill the whole tree on timeout, then drain the output.
+        // Drain concurrently so a verbose compiler cannot fill a pipe and deadlock before
+        // WaitForExit. A hung child still gets killed with its entire process tree.
+        var stdout = proc.StandardOutput.ReadToEndAsync();
+        var stderr = proc.StandardError.ReadToEndAsync();
         if (!proc.WaitForExit((int)TimeSpan.FromMinutes(3).TotalMilliseconds))
         {
             proc.Kill(entireProcessTree: true);
             proc.WaitForExit();
         }
-        var output = proc.StandardOutput.ReadToEnd() + proc.StandardError.ReadToEnd();
+        var output = stdout.GetAwaiter().GetResult() + stderr.GetAwaiter().GetResult();
         return new BuildResult(proc.ExitCode == 0, output);
     }
 
@@ -417,14 +419,16 @@ internal sealed class MutationRunner
             WorkingDirectory = _repoRoot,
         };
         var proc = Process.Start(psi)!;
-        // A mutant can hang a test (e.g. an infinite loop) — that must count as killed,
-        // not block the whole run. WaitForExit first, kill the tree on timeout, then read.
+        // Drain concurrently. A mutant can hang a test — that counts as killed after the
+        // timeout, never as a blocked mutation run or a false pass.
+        var stdout = proc.StandardOutput.ReadToEndAsync();
+        var stderr = proc.StandardError.ReadToEndAsync();
         if (!proc.WaitForExit((int)TimeSpan.FromMinutes(5).TotalMilliseconds))
         {
             proc.Kill(entireProcessTree: true);
             proc.WaitForExit();
         }
-        var output = proc.StandardOutput.ReadToEnd() + proc.StandardError.ReadToEnd();
+        var output = stdout.GetAwaiter().GetResult() + stderr.GetAwaiter().GetResult();
         return new TestResult(proc.ExitCode != 0, output);
     }
 }

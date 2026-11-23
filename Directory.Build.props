@@ -4,6 +4,7 @@
     <LangVersion>latest</LangVersion>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <Version>0.2.0</Version>
     <InformationalVersion>$(Version)</InformationalVersion>
     <Authors>Patrick Baumgartner</Authors>

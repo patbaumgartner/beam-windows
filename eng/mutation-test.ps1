@@ -37,9 +37,11 @@
 #>
 [CmdletBinding()]
 param(
-    [string[]]$SourceProject = @("src/Beam.Core/Beam.Core.csproj"),
-    [string[]]$TestProject = @("tests/Beam.Core.Tests/Beam.Core.Tests.csproj"),
-    [string]$Output = ""
+    [string[]]$SourceProject = @("src/Beam.Core/Beam.Core.csproj", "src/Beam.App/Beam.App.csproj"),
+    [string[]]$TestProject = @("tests/Beam.Core.Tests/Beam.Core.Tests.csproj", "tests/Beam.App.Tests/Beam.App.Tests.csproj"),
+    [string]$Output = "",
+    [ValidateRange(1, 1000000)]
+    [int]$MaxMutants = 50
 )
 
 $ErrorActionPreference = 'Stop'
@@ -73,7 +75,8 @@ try {
         # Pass a per-project report file as the 3rd arg: the tool prints summary lines
         # after the JSON on stdout, so stdout cannot be parsed reliably — the file can.
         $projReportPath = "$env:TEMP\beam-mutation-report-$timestamp-$i.json"
-        $result = dotnet run --project eng/MutationTester/MutationTester.csproj -c Release --nologo -- "$src" "$tst" "$projReportPath" 2>&1
+        Remove-Item $projReportPath -Force -ErrorAction SilentlyContinue
+        $result = dotnet run --project eng/MutationTester/MutationTester.csproj -c Release --no-build -- "$src" "$tst" "$projReportPath" "$MaxMutants" 2>&1
         $exit = $LASTEXITCODE
 
         Write-Output $result
@@ -100,7 +103,14 @@ try {
             }
         }
         catch {
-            Write-Warning "Could not parse mutation report for $src"
+            throw "Could not parse mutation report for ${src}: $($_.Exception.Message)"
+        }
+
+        if ($report.TotalMutants -le 0) {
+            throw "Mutation runner produced no mutants for $src; refusing to report a false pass."
+        }
+        if ($exit -ne 0 -and $report.SurvivingMutants.Count -eq 0) {
+            throw "Mutation runner exited $exit without surviving-mutant details for $src."
         }
 
         if ($exit -ne 0) {
@@ -126,6 +136,10 @@ try {
         foreach ($m in $allResults) {
             Write-Output "  $($m.SourceProject) : $($m.File) :$($m.Line) : $($m.Mutation) : $($m.Description)"
         }
+    }
+
+    if ($totalMutants -le 0) {
+        throw "No mutation results were produced; refusing to report a false pass."
     }
 
     # Write the combined report

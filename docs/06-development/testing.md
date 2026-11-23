@@ -146,15 +146,15 @@ pwsh eng/coverage.ps1 -Enforce     # fail below the gate (used by CI)
 ```
 
 The script unions the Cobertura reports from every test project, so a line counts as
-covered if any project exercised it. Current numbers (Release, 2026-11-08):
+covered if any project exercised it. Current numbers (Release, 2026-11-23):
 
 | Assembly | Lines | Gate |
 |---|---|---|
-| `Beam.Core` | 381 / 400 = 95.2% | ≥ 85% |
-| `Beam.App` | 462 / 474 = 97.5% | ≥ 80% |
-| `Beam.Cli` | 247 / 305 = 81.0% | ≥ 75% |
-| `Beam.Windows` | 108 / 611 = 17.7% | reported only |
-| `Beam.Tray` | 12 / 458 = 2.6% | reported only |
+| `Beam.Core` | 656 / 728 = 90.1% | ≥ 85% |
+| `Beam.App` | 1337 / 1455 = 91.9% | ≥ 80% |
+| `Beam.Cli` | 406 / 433 = 93.8% | ≥ 75% |
+| `Beam.Windows` | 166 / 901 = 18.4% | reported only |
+| `Beam.Tray` | 259 / 1155 = 22.4% | reported only |
 
 Coverage is a regression alarm, not a target. The sequencing and failure-path tests in
 `Beam.App.Tests` matter more than the percentage.
@@ -186,14 +186,16 @@ A **surviving mutant** indicates one of two things:
 ### Running
 
 ```powershell
-# Run up to 50 mutants against Beam.Core
-pwsh eng/mutation-test.ps1 -SourceProject src/Beam.Core/Beam.Core.csproj -TestProject tests/Beam.Core.Tests/Beam.Core.Tests.csproj
+# Run up to 50 mutants each against Beam.Core and Beam.App (the CI gate)
+pwsh eng/mutation-test.ps1 -MaxMutants 50
 
-# Run with a specific report output
-pwsh eng/mutation-test.ps1 -Output mutation-report.json -SourceProject src/Beam.Core/Beam.Core.csproj -TestProject tests/Beam.Core.Tests/Beam.Core.Tests.csproj -SourceProject src/Beam.App/Beam.App.csproj -TestProject tests/Beam.App.Tests/Beam.App.Tests.csproj
+# Run one project with a specific report output
+pwsh eng/mutation-test.ps1 -Output mutation-report.json -SourceProject src/Beam.Core/Beam.Core.csproj -TestProject tests/Beam.Core.Tests/Beam.Core.Tests.csproj
 ```
 
-Exit code is non-zero when any mutants survive — CI should fail on this.
+Exit code is non-zero when any mutants survive. It is also non-zero for a broken baseline,
+missing/malformed/empty reports, or an unexpected runner exit — missing evidence never counts as
+a pass. CI runs 50 mutants each for Core and App and snapshots wait for that gate.
 
 ## Hardware matrix (manual)
 
