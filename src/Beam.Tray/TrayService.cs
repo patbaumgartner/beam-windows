@@ -242,17 +242,36 @@ public sealed class TrayService : IDisposable
 
         // Pause / resume — the label is kept in sync with the session state in
         // ApplyStateToUi, so it always reflects whether Beam is running or paused.
-        _pauseItem = new ToolStripMenuItem(PauseItemText(_session.State));
+        _pauseItem = new ToolStripMenuItem(PauseItemText(_session.State))
+        {
+            Enabled = TrayPresentation.CanPauseOrResume(_session.State),
+        };
         _pauseItem.Click += (_, _) =>
         {
             if (_session.State == SessionState.Paused)
             {
-                _session.Resume();
+                if (_presentation is not null)
+                {
+                    _ = _presentation.ResumeAsync();
+                }
+                else
+                {
+                    _session.Resume();
+                }
+
                 Log.Info("Beam resumed by user", "Tray");
             }
             else
             {
-                _session.Pause();
+                if (_presentation is not null)
+                {
+                    _presentation.PauseFor(TrayPresentation.PauseDuration(_presentation.TimedPauseMinutes));
+                }
+                else
+                {
+                    _session.Pause();
+                }
+
                 Log.Info("Beam paused by user", "Tray");
             }
         };
@@ -514,6 +533,7 @@ public sealed class TrayService : IDisposable
         if (_pauseItem is not null)
         {
             _pauseItem.Text = PauseItemText(evt.To);
+            _pauseItem.Enabled = TrayPresentation.CanPauseOrResume(evt.To);
         }
         if (_applyItem is not null)
         {
@@ -802,6 +822,7 @@ public sealed class TrayService : IDisposable
         if (_pauseItem is not null)
         {
             _pauseItem.Text = PauseItemText(_session.State);
+            _pauseItem.Enabled = TrayPresentation.CanPauseOrResume(_session.State);
         }
         if (_applyItem is not null)
         {

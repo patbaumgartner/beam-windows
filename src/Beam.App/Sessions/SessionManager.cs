@@ -67,6 +67,12 @@ public sealed class SessionManager : IDisposable
         get { lock (_lock) return _state; }
     }
 
+    /// <summary>True when a real active presentation is currently hidden by Paused state.</summary>
+    public bool PausedFromActive
+    {
+        get { lock (_lock) return _state == SessionState.Paused && _prePause == SessionState.Active; }
+    }
+
     /// <summary>
     /// Called by the presentation manager when the trigger condition becomes true
     /// (external display + mirrored + aspect mismatch).

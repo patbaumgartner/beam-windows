@@ -14,8 +14,8 @@ Beam's test suite is split along the same lines as the production code. The rule
 | `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, brand-icon colours, concurrency stress, projector-screen UI |
 | `tests/Beam.Architecture.Tests` | `net10.0` | Project-reference and portability rules from [architecture.md](architecture.md), composition-root binary-name collision guard |
 
-Current totals: **923 tests** (Architecture 11, Core 343, Cli 95, Windows 91, App 237,
-Tray 146). Run them with:
+Current totals: **940 tests** (Architecture 11, Core 343, Cli 95, Windows 91, App 243,
+Tray 157). Run them with:
 
 ```powershell
 dotnet test Beam.sln -c Release

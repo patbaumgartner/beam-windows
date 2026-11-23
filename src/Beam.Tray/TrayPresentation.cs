@@ -193,7 +193,15 @@ internal static class TrayPresentation
     /// <summary>
     /// C2: whether a timed-pause item is meaningful right now (not while already paused).
     /// </summary>
-    public static bool CanPauseFor(SessionState state) => state != SessionState.Paused;
+    public static bool CanPauseFor(SessionState state) => state is SessionState.Idle or SessionState.Active;
+
+    /// <summary>Pause/resume is safe from stable states only; Paused still allows Resume.</summary>
+    public static bool CanPauseOrResume(SessionState state) =>
+        state is SessionState.Idle or SessionState.Active or SessionState.Paused;
+
+    /// <summary>Maps the persisted pause preset to the primary tray Pause action.</summary>
+    public static TimeSpan PauseDuration(int? minutes) =>
+        minutes is > 0 ? TimeSpan.FromMinutes(minutes.Value) : TimeSpan.Zero;
 
     /// <summary>
     /// C2: the "Apply projector mode now" label with the global-hotkey shortcut hint

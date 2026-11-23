@@ -64,11 +64,14 @@ public sealed class PresentationManager : IDisposable
     private readonly int _verifyMaxAttempts;
 
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly object _operationLock = new();
+    private Task _operationTail = Task.CompletedTask;
     private IReadOnlyList<NightLightSnapshot>? _nightLightSnapshot;
     private IReadOnlyList<JournalDpiEntry>? _dpiSnapshot;
     private bool _modeChangeAttempted;
     private bool _dpiChangeAttempted;
     private bool _nightLightChangeAttempted;
+    private bool _simulatedPresentation;
     private Task _pending = Task.CompletedTask;
     private readonly object _displayEventLock = new();
     private Task _displayEventTail = Task.CompletedTask;
@@ -493,6 +496,12 @@ public sealed class PresentationManager : IDisposable
     public Task RestoreNowAsync() => Track(RunExclusiveAsync(RestoreNowCoreAsync));
 
     /// <summary>
+    /// Resumes a pause and reconciles changes missed while paused: restore a real presentation
+    /// whose projector disappeared, or evaluate a newly connected projector while idle.
+    /// </summary>
+    public Task ResumeAsync() => Track(RunExclusiveAsync(ResumeCoreAsync));
+
+    /// <summary>
     /// Applies the fix when the trigger is already true (the app launched while a
     /// projector was already mirrored with bars). Safe to call repeatedly.
     /// </summary>
@@ -696,6 +705,16 @@ public sealed class PresentationManager : IDisposable
     /// </summary>
     public void PauseFor(TimeSpan duration)
     {
+        if (_session.State is SessionState.Detecting or SessionState.Applying or SessionState.Restoring)
+        {
+            // Pausing a transition would hide Applying/Restoring from MarkActive/MarkIdle and
+            // could strand an owned fix. The tray disables these actions during transitions.
+            Log.Warn("Pause ignored while a presentation transition is in progress", "Manual",
+                ("state", _session.State.ToString()));
+            return;
+        }
+
+        CancelPauseTimer();
         _session.Pause();
         Log.Info("Pause requested", "Manual",
             ("durationMs", duration.TotalMilliseconds.ToString()),
@@ -706,8 +725,14 @@ public sealed class PresentationManager : IDisposable
         }
 
         _pauseUntilUtc = _clock() + duration;
-        _pauseTimer?.Dispose();
         _pauseTimer = new Timer(_ => OnPauseTimerElapsed(), null, duration, Timeout.InfiniteTimeSpan);
+    }
+
+    private void CancelPauseTimer()
+    {
+        _pauseTimer?.Dispose();
+        _pauseTimer = null;
+        _pauseUntilUtc = DateTimeOffset.MinValue;
     }
 
     private void OnPauseTimerElapsed()
@@ -720,7 +745,7 @@ public sealed class PresentationManager : IDisposable
         if (_session.State == SessionState.Paused && _clock() >= _pauseUntilUtc)
         {
             Log.Info("Timed pause elapsed — resuming", "Manual", ("pausedUntil", _pauseUntilUtc.ToString("o")));
-            _session.Resume();
+            _ = ResumeAsync();
         }
     }
 
@@ -905,6 +930,30 @@ public sealed class PresentationManager : IDisposable
         return RestoreSequenceAsync();
     }
 
+    private async Task ResumeCoreAsync()
+    {
+        if (_session.State != SessionState.Paused)
+        {
+            return;
+        }
+
+        CancelPauseTimer();
+        _session.Resume();
+        if (_session.State == SessionState.Active
+            && _restoreOnDisconnect
+            && !_simulatedPresentation
+            && QueryTopology().ExternalPaths.Count == 0)
+        {
+            // The disconnect event was deliberately ignored while paused. Do not require a
+            // second physical event to restore the user's settings on manual/timed resume.
+            await RestoreSequenceAsync().ConfigureAwait(false);
+            return;
+        }
+
+        // When idle, a projector connected during the pause is evaluated exactly once.
+        await CheckCurrentStateCoreAsync().ConfigureAwait(false);
+    }
+
     private Task SetEnabledCoreAsync(bool enabled)
     {
         if (IsEnabled == enabled)
@@ -912,19 +961,28 @@ public sealed class PresentationManager : IDisposable
             return Task.CompletedTask;
         }
 
+        bool pausedFromActive = _session.PausedFromActive;
         IsEnabled = enabled;
         Log.Info(enabled
                 ? "Beam enabled by user — monitoring resumed."
                 : "Beam disabled by user — restoring now if a fix is active.",
             "Manual", ("enabled", enabled.ToString()));
 
-        // UC-12 rule 12: the kill switch restores immediately, synchronously.
-        if (!enabled && _session.State is SessionState.Active or SessionState.Applying)
+        // UC-12 rule 12: ownership survives Paused state. Resume only to make the normal
+        // restore path available, then finish disabled and Idle when restoration succeeds.
+        if (!enabled && (_session.State is SessionState.Active or SessionState.Applying || pausedFromActive))
         {
+            if (pausedFromActive)
+            {
+                _session.Resume();
+            }
+
             return RestoreSequenceAsync();
         }
 
-        return Task.CompletedTask;
+        // Re-enabling must reconcile a projector connected while Beam was disabled instead
+        // of waiting for another physical display event.
+        return enabled ? CheckCurrentStateCoreAsync() : Task.CompletedTask;
     }
 
     private Task CheckCurrentStateCoreAsync()
@@ -1013,6 +1071,7 @@ public sealed class PresentationManager : IDisposable
         _modeChangeAttempted = false;
         _dpiChangeAttempted = false;
         _nightLightChangeAttempted = false;
+        _simulatedPresentation = false;
         try
         {
             // Step 1: Night Light OFF (policy-gated: UseNightLight).
@@ -1087,6 +1146,7 @@ public sealed class PresentationManager : IDisposable
                     // unwind below would switch straight back. Simulate the presentation
                     // instead — Night Light, DPI and the extras still apply; only the
                     // display-mode step is skipped.
+                    _simulatedPresentation = true;
                     Log.Info("Fix Step 2 skipped: manual apply with a single display — simulating presentation mode.", "Fix",
                         ("step", "displayMode"),
                         ("activePaths", beforeMode.ActivePaths.Count.ToString()),
@@ -1381,6 +1441,7 @@ public sealed class PresentationManager : IDisposable
             _modeChangeAttempted = false;
             _dpiChangeAttempted = false;
             _nightLightChangeAttempted = false;
+            _simulatedPresentation = false;
             _extras = null;
             _appliedSourceMode = null;
             _appliedDpiPercent = null;
@@ -1736,11 +1797,32 @@ public sealed class PresentationManager : IDisposable
             ("error", error ?? "none"));
     }
 
-    private Task RunExclusiveAsync(Func<Task> body) => Task.Run(async () =>
+    private Task RunExclusiveAsync(Func<Task> body)
     {
-        // A WaitAsync that completes synchronously would otherwise run the entire native
-        // sequence inline on a WinForms/WPF caller. Enter through the default scheduler so
-        // display/registry sleeps can never freeze the tray UI, then remain off that context.
+        lock (_operationLock)
+        {
+            // Assign the tail before any task runs so public operations execute in invocation
+            // order (Apply then Restore cannot become Restore-then-no-op). Task.Run provides
+            // the hard UI/thread-pool boundary; the previous-task await provides FIFO order.
+            Task previous = _operationTail;
+            Task task = Task.Run(() => RunExclusiveAfterAsync(previous, body));
+            _operationTail = task;
+            return task;
+        }
+    }
+
+    private async Task RunExclusiveAfterAsync(Task previous, Func<Task> body)
+    {
+        try
+        {
+            await previous.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // A failed earlier command must not prevent later Undo/recovery commands.
+            Log.Exception(ex, "Sequence", ("step", "previous-operation"));
+        }
+
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -1750,7 +1832,7 @@ public sealed class PresentationManager : IDisposable
         {
             _gate.Release();
         }
-    });
+    }
 
     private Task Track(Task task)
     {

@@ -79,9 +79,16 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   Display events are chained in order (and `PendingTask` covers the whole chain), disconnects
   mark Restoring before dispatch, and safe-mode icon/menu updates marshal entirely to the UI
   context instead of updating WinForms state from a worker.
+- **Pause/resume now reconciles reality.** A real presentation disconnected while paused is
+  restored on manual or timed resume without a second event; a projector connected while paused
+  or disabled is evaluated on resume/re-enable. Simulated no-projector sessions stay active,
+  disabling while paused-active still restores, indefinite pause cancels stale timers, and pause
+  is deferred during Applying/Restoring. The tray's primary Pause action honors the configured
+  15-minute/1-hour/indefinite preset. Public operations now run in FIFO invocation order, so an
+  immediate Apply → Restore sequence cannot let Restore evaluate the pre-Apply Idle state.
 
-Test suite: **923 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 91, App 237,
-Tray 146) — was 826 at the issue-#1 fix.
+Test suite: **940 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 91, App 243,
+Tray 157) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14
 

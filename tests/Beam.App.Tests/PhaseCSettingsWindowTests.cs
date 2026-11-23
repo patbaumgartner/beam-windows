@@ -127,7 +127,7 @@ public class PhaseCSettingsWindowTests
     [Fact]
     public async Task PauseFor_Timed_AutoResumes()
     {
-        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
 
         h.Manager.PauseFor(TimeSpan.FromMilliseconds(80));
         Assert.Equal(SessionState.Paused, h.Session.State);

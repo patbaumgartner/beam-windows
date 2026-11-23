@@ -126,12 +126,35 @@ public class PhaseCTrayUiTests
 
     [Theory]
     [InlineData(SessionState.Idle, true)]
-    [InlineData(SessionState.Detecting, true)]
+    [InlineData(SessionState.Detecting, false)]
     [InlineData(SessionState.Active, true)]
+    [InlineData(SessionState.Applying, false)]
+    [InlineData(SessionState.Restoring, false)]
     [InlineData(SessionState.Paused, false)]
-    public void CanPauseFor_FalseOnlyWhilePaused(SessionState state, bool expected)
+    public void CanPauseFor_AllowsOnlyStableUnpausedStates(SessionState state, bool expected)
     {
         Assert.Equal(expected, TrayPresentation.CanPauseFor(state));
+    }
+
+    [Theory]
+    [InlineData(SessionState.Idle, true)]
+    [InlineData(SessionState.Detecting, false)]
+    [InlineData(SessionState.Active, true)]
+    [InlineData(SessionState.Applying, false)]
+    [InlineData(SessionState.Restoring, false)]
+    [InlineData(SessionState.Paused, true)]
+    public void CanPauseOrResume_AllowsOnlyStableStatesAndResume(SessionState state, bool expected)
+    {
+        Assert.Equal(expected, TrayPresentation.CanPauseOrResume(state));
+    }
+
+    [Theory]
+    [InlineData(null, 0)]
+    [InlineData(15, 15)]
+    [InlineData(60, 60)]
+    public void PauseDuration_UsesPreferredTrayPreset(int? minutes, int expectedMinutes)
+    {
+        Assert.Equal(TimeSpan.FromMinutes(expectedMinutes), TrayPresentation.PauseDuration(minutes));
     }
 
     [Fact]
