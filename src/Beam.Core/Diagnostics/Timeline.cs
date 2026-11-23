@@ -104,7 +104,7 @@ public sealed class TimelineBuffer : IReadOnlyList<TimelineEvent>
         lock (_lock)
         {
             Array.Clear(_ring);
-            _start = 0;
+            // With no entries, the next Add defines the oldest slot; no start reset is needed.
             _count = 0;
         }
     }

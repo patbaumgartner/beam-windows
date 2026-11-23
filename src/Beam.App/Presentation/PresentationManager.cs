@@ -102,6 +102,7 @@ public sealed class PresentationManager : IDisposable
 
     // B4 persisted settings: loaded once in the ctor, saved on every change.
     private readonly ISettingsStore? _settingsStore;
+    private readonly object _settingsSaveLock = new();
     private BeamSettings _settings = BeamSettings.Defaults;
     private bool _isEnabled = true;
     private bool _useMode = true;
@@ -1486,16 +1487,21 @@ public sealed class PresentationManager : IDisposable
             return;
         }
 
-        try
+        lock (_settingsSaveLock)
         {
-            BeamSettings snapshot = CurrentSettings;
-            _settings = snapshot;
-            _settingsStore.Save(snapshot);
-        }
-        catch (Exception ex)
-        {
-            Log.Warn("Settings persist failed — continuing with in-memory settings", "Settings",
-                ("error", ex.Message));
+            try
+            {
+                // Snapshot creation and write order must match. Otherwise an older snapshot
+                // delayed in the store can overwrite a newer, unrelated setting change.
+                BeamSettings snapshot = CurrentSettings;
+                _settings = snapshot;
+                _settingsStore.Save(snapshot);
+            }
+            catch (Exception ex)
+            {
+                Log.Warn("Settings persist failed — continuing with in-memory settings", "Settings",
+                    ("error", ex.Message));
+            }
         }
     }
 

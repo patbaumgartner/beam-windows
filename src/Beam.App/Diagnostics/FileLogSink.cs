@@ -3,6 +3,8 @@ using System.Text;
 using System.Text.Json;
 using Beam.Core.Diagnostics;
 
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("Beam.App.Tests")]
+
 namespace Beam.App.Diagnostics;
 
 /// <summary>
@@ -76,7 +78,7 @@ public sealed class FileLogSink : ILogSink
                 ? " " + string.Join(" ", data.Select(d => $"{d.Key}={Escape(d.Value)}"))
                 : "";
 
-            string line = $"[{stamp}] [tid={tid,3}] [{level.ToString().ToUpperInvariant()}] [{cat}] {EscapeText(message)}{dataStr}";
+            string line = $"[{stamp}] [tid={FormatThreadId(tid)}] [{level.ToString().ToUpperInvariant()}] [{cat}] {EscapeText(message)}{dataStr}";
             Append(_logFile, line + Environment.NewLine);
 
             Dictionary<string, object?>? jsonData = null;
@@ -160,6 +162,9 @@ public sealed class FileLogSink : ILogSink
         }
     }
 
+    /// <summary>Formats a managed thread id to three left-padded columns, including tiny test ids.</summary>
+    internal static string FormatThreadId(int tid) => tid.ToString().PadLeft(3);
+
     private static string Escape(object? value)
     {
         string s = value switch
@@ -187,7 +192,7 @@ public sealed class FileLogSink : ILogSink
             return s;
         }
 
-        var sb = new StringBuilder(s.Length + 8);
+        var sb = new StringBuilder(s.Length);
         foreach (char c in s)
         {
             switch (c)

@@ -19,6 +19,13 @@ public class AspectRatioTests
     }
 
     [Fact]
+    public void DisplayMode_ToString_IncludesFractionalPositiveRefreshRate()
+    {
+        Assert.Equal("1920x1080@0.5Hz", new DisplayMode(1920, 1080, 0.5).ToString());
+        Assert.Equal("1920x1080", new DisplayMode(1920, 1080, 0).ToString());
+    }
+
+    [Fact]
     public void Classify_FromMode_UsesModeSize()
     {
         var mode = new DisplayMode(1920, 1080, 60);

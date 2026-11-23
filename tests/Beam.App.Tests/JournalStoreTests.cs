@@ -54,6 +54,25 @@ public class JournalStoreTests
     }
 
     [Fact]
+    public void BeginApply_WritesHumanReadableIndentedJson()
+    {
+        string dir = TempDir();
+        try
+        {
+            var store = new JournalStore(dir);
+            store.BeginApply("readable", null);
+
+            string json = File.ReadAllText(Path.Combine(dir, "journal.json"));
+            Assert.Contains(Environment.NewLine, json);
+            Assert.Contains("  \"IsActive\": true", json);
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
     public void BeginApply_StaysActiveUntilCleared_SoACrashCanRecover()
     {
         string dir = TempDir();

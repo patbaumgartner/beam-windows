@@ -38,6 +38,32 @@ public class TimelineBufferTests
     }
 
     [Fact]
+    public void CapacityOne_AcceptsAndKeepsLatestEntry()
+    {
+        var buffer = new TimelineBuffer(capacity: 1);
+
+        buffer.Add(Ev(0));
+        buffer.Add(Ev(1));
+
+        Assert.Equal(1, buffer.Count);
+        Assert.Equal("event 1", buffer[0].Message);
+    }
+
+    [Fact]
+    public void Clear_ThenAdd_StartsFreshAtBeginning()
+    {
+        var buffer = new TimelineBuffer(capacity: 3);
+        buffer.Add(Ev(0));
+        buffer.Add(Ev(1));
+        buffer.Clear();
+
+        buffer.Add(Ev(2));
+        buffer.Add(Ev(3));
+
+        Assert.Equal(new[] { "event 2", "event 3" }, buffer.Snapshot().Select(e => e.Message));
+    }
+
+    [Fact]
     public void DefaultCapacity_Is200()
     {
         Assert.Equal(200, TimelineBuffer.DefaultCapacity);

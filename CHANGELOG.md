@@ -114,8 +114,16 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
 - **Core parsing edges are safe.** Lowercase F-key hotkeys now work like their uppercase forms,
   and a Night Light epoch too close to `uint.MaxValue` throws instead of wrapping into a stale
   value Windows would reject.
+- **Settings saves preserve concurrent changes.** Snapshot creation and store writes are now
+  serialized in the same order, so a delayed older save cannot overwrite a newer setting.
+- **Failed DPI verification rolls back.** The adapter uses freshly read scale metadata and, when
+  the target cannot be verified, writes and verifies the original relative step instead of
+  leaving an unverified scale behind. No-op targets do not write or sleep.
+- **Mutation-identified test gaps are closed.** Timeline capacity-one/reuse, fractional refresh
+  formatting, leading log control characters, tiny thread IDs, and repeated rotation now have
+  explicit behavioral coverage. Capacity-only `StringBuilder` arithmetic was removed.
 
-Test suite: **969 tests, 0 failed** (Architecture 11, Core 346, Cli 109, Windows 91, App 249,
+Test suite: **983 tests, 0 failed** (Architecture 11, Core 351, Cli 109, Windows 95, App 256,
 Tray 161) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

@@ -76,49 +76,81 @@ public static class DpiController
     /// Sets a source to a percentage on the ladder, clamped to the supported range.
     /// Verifies by re-reading.
     /// </summary>
-    public static bool SetPercentageAndVerify(LUID adapterId, uint sourceId, int percent, DpiScaleValue? info = null)
+    public static bool SetPercentageAndVerify(LUID adapterId, uint sourceId, int percent, DpiScaleValue? info = null) =>
+        SetPercentageAndVerifyCore(adapterId, sourceId, percent, Read, SetRelative);
+
+    /// <summary>
+    /// Testable implementation. The fresh read is authoritative; caller-supplied metadata may
+    /// be stale after a mode change. Failed verification writes the original relative step back
+    /// and verifies that rollback best-effort instead of leaving an unverified scale in place.
+    /// </summary>
+    internal static bool SetPercentageAndVerifyCore(
+        LUID adapterId,
+        uint sourceId,
+        int percent,
+        Func<LUID, uint, DpiScale?> read,
+        Func<LUID, uint, int, bool> write,
+        Action<TimeSpan>? delay = null)
     {
-        DpiScale? scale = Read(adapterId, sourceId);
-        DpiScaleValue? value = scale?.Value;
-        if (value is null)
+        ArgumentNullException.ThrowIfNull(read);
+        ArgumentNullException.ThrowIfNull(write);
+        delay ??= _ => Thread.Sleep(250);
+
+        DpiScaleValue? original = read(adapterId, sourceId)?.Value;
+        if (original is null)
         {
             return false;
         }
 
-        // info may be null; flow analysis needs the intermediate local above (value) so
-        // CS8604 does not fire on the ??= below.
-        info ??= value;
-
-        // Clamp to the display's supported range, then to the ladder.
-        int target = Math.Clamp(percent, info.Minimum, info.Maximum);
+        int target = Math.Clamp(percent, original.Minimum, original.Maximum);
         if (DpiScaleLadder.IndexOf(target) < 0)
         {
             return false;
         }
 
-        int? relative = info.RelativeFor(target);
-        if (relative is null)
+        if (target == original.Current)
+        {
+            return true;
+        }
+
+        int? relative = original.RelativeFor(target);
+        if (relative is null || !write(adapterId, sourceId, relative.Value))
         {
             return false;
         }
 
-        if (!SetRelative(adapterId, sourceId, relative.Value))
+        if (Verify(read, adapterId, sourceId, target, delay))
         {
-            return false;
+            return true;
         }
 
-        // Verify by re-read; give the driver a beat to apply.
-        DpiScale? after = null;
+        int? originalRelative = original.RelativeFor(original.Current);
+        if (originalRelative is not null)
+        {
+            _ = write(adapterId, sourceId, originalRelative.Value);
+            _ = Verify(read, adapterId, sourceId, original.Current, delay);
+        }
+
+        return false;
+    }
+
+    private static bool Verify(
+        Func<LUID, uint, DpiScale?> read,
+        LUID adapterId,
+        uint sourceId,
+        int target,
+        Action<TimeSpan> delay)
+    {
         for (int attempt = 0; attempt < 2; attempt++)
         {
-            Thread.Sleep(250);
-            after = Read(adapterId, sourceId);
+            delay(TimeSpan.FromMilliseconds(250));
+            DpiScale? after = read(adapterId, sourceId);
             if (after?.Value is not null && after.Value.Current == target)
             {
                 return true;
             }
         }
 
-        return after?.Value?.Current == target;
+        return false;
     }
 }

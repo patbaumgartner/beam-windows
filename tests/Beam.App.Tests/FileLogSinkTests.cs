@@ -269,6 +269,7 @@ public class FileLogSinkTests : IDisposable
                 Array.Empty<KeyValuePair<string, object?>>());
         }
 
+        Assert.Contains("message number 19", File.ReadAllText(sink.LogPath));
         Assert.True(File.Exists(sink.LogPath));
         Assert.True(File.Exists(sink.LogPath + ".1"));
         Assert.True(File.Exists(sink.LogPath + ".2"));
@@ -279,6 +280,27 @@ public class FileLogSinkTests : IDisposable
         // The detailed JSONL rotates on the same policy.
         Assert.True(File.Exists(sink.DetailedLogPath + ".1"));
         Assert.False(File.Exists(sink.DetailedLogPath + ".4"));
+    }
+
+    [Fact]
+    public void Write_EscapesControlCharacterAtStartOfMessage()
+    {
+        var sink = new FileLogSink(_dir);
+
+        sink.Write(LogLevel.Info, "\nforged", "Test", Array.Empty<KeyValuePair<string, object?>>());
+
+        Assert.Single(File.ReadAllLines(sink.LogPath));
+        Assert.Contains(@"\nforged", File.ReadAllText(sink.LogPath));
+    }
+
+    [Theory]
+    [InlineData(1, "  1")]
+    [InlineData(12, " 12")]
+    [InlineData(123, "123")]
+    [InlineData(1234, "1234")]
+    public void FormatThreadId_PadsToThreeColumns(int tid, string expected)
+    {
+        Assert.Equal(expected, FileLogSink.FormatThreadId(tid));
     }
 
     [Fact]
