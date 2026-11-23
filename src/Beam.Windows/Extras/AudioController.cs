@@ -45,15 +45,35 @@ public sealed class AudioController : IAudioController
         Communications = 2,
     }
 
-    // PKEY_AudioEndpoint_FormFactor, pid 0.
-    private static readonly Guid PkeyAudioEndpointFormFactor = new("1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E");
+    [StructLayout(LayoutKind.Sequential)]
+    private struct PropertyKey
+    {
+        public Guid FormatId;
+        public uint Pid;
+    }
 
-    // PKEY_Device_FriendlyName, pid 14.
-    private static readonly Guid PkeyDeviceFriendlyName = new("A45C254E-DF1C-4EFD-8020-67D146A850E0");
+    // PKEY_AudioEndpoint_FormFactor, pid 0; PKEY_Device_FriendlyName, pid 14.
+    private static readonly PropertyKey PkeyAudioEndpointFormFactor = new()
+    {
+        FormatId = new Guid("1DA5D803-D492-4EDD-8C23-E0C0FFEE7F0E"),
+        Pid = 0,
+    };
+
+    private static readonly PropertyKey PkeyDeviceFriendlyName = new()
+    {
+        FormatId = new Guid("A45C254E-DF1C-4EFD-8020-67D146A850E0"),
+        Pid = 14,
+    };
 
     [ComImport]
     [Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] // CLSID_MMDeviceEnumerator
     private class MMDeviceEnumeratorClass
+    {
+    }
+
+    [ComImport]
+    [Guid("870AF99C-171D-4F9E-AF0D-E63DF40C2BC9")] // CLSID_CPolicyConfigClient
+    private class PolicyConfigClientClass
     {
     }
 
@@ -101,27 +121,49 @@ public sealed class AudioController : IAudioController
     {
         int GetCount(out uint count);
 
-        int GetAt(uint index, out Guid key);
+        int GetAt(uint index, out PropertyKey key);
 
-        int GetValue(ref Guid key, out PropVariant value);
+        int GetValue(ref PropertyKey key, out PropVariant value);
 
-        int SetValue(ref Guid key, ref PropVariant value);
+        int SetValue(ref PropertyKey key, ref PropVariant value);
 
         int Commit();
     }
 
     [ComImport]
-    [Guid("F8679F50-850A-41CE-8C69-0AAE27B02D41")] // IID_IPolicyConfig
+    [Guid("F8679F50-850A-41CF-9C72-430F290290C8")] // IID_IPolicyConfig
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     private interface IPolicyConfig
     {
-        // Declared for vtable position only — never called.
+        // The complete declaration through SetEndpointVisibility is required: COM calls
+        // use vtable positions, so omitting earlier methods would invoke the wrong native method.
         int GetMixFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId, out IntPtr waveFormat);
 
-        int GetIconPath([MarshalAs(UnmanagedType.LPWStr)] string deviceId, out IntPtr iconPath);
+        int GetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool defaultFormat, out IntPtr waveFormat);
+
+        int ResetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId);
+
+        int SetDeviceFormat([MarshalAs(UnmanagedType.LPWStr)] string deviceId, IntPtr endpointFormat, IntPtr mixFormat);
+
+        int GetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool defaultPeriod, out long defaultPeriodTicks, out long minimumPeriodTicks);
+
+        int SetProcessingPeriod([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool defaultPeriod, long defaultPeriodTicks, long minimumPeriodTicks);
+
+        int GetShareMode([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool defaultMode, out IntPtr shareMode);
+
+        int SetShareMode([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool defaultMode, IntPtr shareMode);
+
+        int GetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool fxStore, out IntPtr value);
+
+        int SetPropertyValue([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool fxStore, IntPtr value);
 
         int SetDefaultEndpoint([MarshalAs(UnmanagedType.LPWStr)] string deviceId, ERole role);
+
+        int SetEndpointVisibility([MarshalAs(UnmanagedType.LPWStr)] string deviceId, [MarshalAs(UnmanagedType.Bool)] bool visible);
     }
+
+    [DllImport("ole32.dll")]
+    private static extern int PropVariantClear(ref PropVariant value);
 
     /// <summary>Minimal PROPVARIANT (16 bytes on x64): type tag plus a value union.</summary>
     [StructLayout(LayoutKind.Explicit, Size = 16)]
@@ -206,7 +248,19 @@ public sealed class AudioController : IAudioController
                     return false;
                 }
 
-                Marshal.ReleaseComObject(device);
+                try
+                {
+                    // A stale endpoint id can still resolve after the device was unplugged;
+                    // only an active endpoint is a valid restoration target.
+                    if (device.GetState(out uint state) != 0 || (state & DeviceStateActive) == 0)
+                    {
+                        return false;
+                    }
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(device);
+                }
             }
             finally
             {
@@ -298,24 +352,35 @@ public sealed class AudioController : IAudioController
             uint? formFactor = null;
             string? friendlyName = null;
 
-            Guid key = PkeyAudioEndpointFormFactor;
-            if (store.GetValue(ref key, out PropVariant ff) == 0 && ff.Vt == VtUi4)
-            {
-                formFactor = ff.UInt32;
-            }
-
-            key = PkeyDeviceFriendlyName;
-            if (store.GetValue(ref key, out PropVariant name) == 0
-                && name.Vt == VtLpwstr
-                && name.Ptr != IntPtr.Zero)
+            PropertyKey key = PkeyAudioEndpointFormFactor;
+            if (store.GetValue(ref key, out PropVariant ff) == 0)
             {
                 try
                 {
-                    friendlyName = Marshal.PtrToStringUni(name.Ptr);
+                    if (ff.Vt == VtUi4)
+                    {
+                        formFactor = ff.UInt32;
+                    }
                 }
                 finally
                 {
-                    Marshal.FreeCoTaskMem(name.Ptr);
+                    _ = PropVariantClear(ref ff);
+                }
+            }
+
+            key = PkeyDeviceFriendlyName;
+            if (store.GetValue(ref key, out PropVariant name) == 0)
+            {
+                try
+                {
+                    if (name.Vt == VtLpwstr && name.Ptr != IntPtr.Zero)
+                    {
+                        friendlyName = Marshal.PtrToStringUni(name.Ptr);
+                    }
+                }
+                finally
+                {
+                    _ = PropVariantClear(ref name);
                 }
             }
 
@@ -346,15 +411,40 @@ public sealed class AudioController : IAudioController
 
     private static bool SetDefaultEndpoint(string deviceId)
     {
-        // The MMDeviceEnumerator coclass also implements IPolicyConfig; casting performs the QI.
-        var policy = (IPolicyConfig)new MMDeviceEnumeratorClass();
+        var policy = (IPolicyConfig)new PolicyConfigClientClass();
         try
         {
-            return policy.SetDefaultEndpoint(deviceId, ERole.Multimedia) == 0;
+            return policy.SetDefaultEndpoint(deviceId, ERole.Multimedia) == 0
+                && IsDefaultRenderEndpoint(deviceId);
         }
         finally
         {
             Marshal.ReleaseComObject(policy);
+        }
+    }
+
+    private static bool IsDefaultRenderEndpoint(string deviceId)
+    {
+        IMMDeviceEnumerator enumerator = CreateEnumerator();
+        try
+        {
+            if (enumerator.GetDefaultAudioEndpoint(EDataFlow.Render, ERole.Multimedia, out IMMDevice device) != 0)
+            {
+                return false;
+            }
+
+            try
+            {
+                return string.Equals(ReadDeviceId(device), deviceId, StringComparison.OrdinalIgnoreCase);
+            }
+            finally
+            {
+                Marshal.ReleaseComObject(device);
+            }
+        }
+        finally
+        {
+            Marshal.ReleaseComObject(enumerator);
         }
     }
 

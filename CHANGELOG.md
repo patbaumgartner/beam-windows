@@ -69,8 +69,13 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   byte-swapped and validity-gated, rotation names match Windows, and current DPI percentages
   are resolved into monitor snapshots. Multi-GPU paths now group by `(AdapterId, SourceId)` so
   identical source numbers on unrelated adapters cannot form a false clone or aspect mismatch.
+- **HDMI audio switching now uses the correct COM ABI.** The adapter uses `CPolicyConfigClient`
+  and the real `IPolicyConfig` IID/full vtable, proper 20-byte `PROPERTYKEY` values, and
+  `PropVariantClear`. Switch/restore verify the default endpoint by reading it back, and stale
+  inactive endpoints are not restored. Reflection tests pin the ABI without changing audio on
+  the test machine.
 
-Test suite: **917 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 87, App 236,
+Test suite: **921 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 91, App 236,
 Tray 145) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14
