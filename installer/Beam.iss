@@ -38,7 +38,7 @@ ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 PrivilegesRequired=lowest
 DisableDirPage=auto
-ChangesEnvironment=no
+ChangesEnvironment=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -56,6 +56,7 @@ Name: "autostart"; Description: "Launch Beam at &sign-in"; GroupDescription: "St
 Source: "{#MyAppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: tray
 ; CLI — a thin, self-contained exe (component, on by default).
 Source: "{#MyCliDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: cli
+Source: "beam.cmd"; DestDir: "{app}"; Flags: ignoreversion; Components: cli
 ; Required license and asset attribution notices.
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 Source: "..\assets\ATTRIBUTION.md"; DestDir: "{app}"; DestName: "THIRD-PARTY-NOTICES.txt"; Flags: ignoreversion
@@ -69,3 +70,73 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch Beam now"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function ContainsPathEntry(const PathList, Entry: string): Boolean;
+begin
+  Result := Pos(';' + Lowercase(Entry) + ';', ';' + Lowercase(PathList) + ';') > 0;
+end;
+
+procedure AddBeamToUserPath;
+var
+  CurrentPath, BeamDir: string;
+begin
+  BeamDir := ExpandConstant('{app}');
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', CurrentPath) then
+    CurrentPath := '';
+  if ContainsPathEntry(CurrentPath, BeamDir) then
+    exit;
+  if CurrentPath <> '' then
+    if CurrentPath[Length(CurrentPath)] <> ';' then
+      CurrentPath := CurrentPath + ';';
+  CurrentPath := CurrentPath + BeamDir;
+  RegWriteExpandStringValue(HKCU, 'Environment', 'Path', CurrentPath);
+end;
+
+procedure RemoveBeamFromUserPath;
+var
+  CurrentPath, BeamDir, WrappedPath, Token: string;
+  P: Integer;
+begin
+  if not RegQueryStringValue(HKCU, 'Environment', 'Path', CurrentPath) then
+    exit;
+  BeamDir := ExpandConstant('{app}');
+  WrappedPath := ';' + Lowercase(CurrentPath) + ';';
+  Token := ';' + Lowercase(BeamDir) + ';';
+  P := Pos(Token, WrappedPath);
+  if P = 0 then
+    exit;
+  Delete(CurrentPath, P, Length(Token) - 1);
+  if Trim(CurrentPath) = '' then
+    RegDeleteValue(HKCU, 'Environment', 'Path')
+  else
+    RegWriteExpandStringValue(HKCU, 'Environment', 'Path', CurrentPath);
+end;
+
+procedure RemoveBeamRunEntryForThisInstall;
+var
+  Value, QuotedCommand, BareCommand: string;
+begin
+  if not RegQueryStringValue(HKCU,
+    'Software\Microsoft\Windows\CurrentVersion\Run', 'Beam', Value) then
+    exit;
+  BareCommand := ExpandConstant('{app}\{#MyAppExeName}');
+  QuotedCommand := '"' + BareCommand + '" --hidden';
+  if (CompareText(Value, BareCommand) = 0) or (CompareText(Value, QuotedCommand) = 0) then
+    RegDeleteValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Run', 'Beam');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and WizardIsComponentSelected('cli') then
+    AddBeamToUserPath;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    RemoveBeamFromUserPath;
+    RemoveBeamRunEntryForThisInstall;
+  end;
+end;

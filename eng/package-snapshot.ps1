@@ -52,6 +52,7 @@ Copy-Item "$trayPublish\*" -Destination $stage -Recurse -Force
 Copy-Item "$cliPublish\*"  -Destination $stage -Recurse -Force
 Copy-Item (Join-Path $root "LICENSE") -Destination (Join-Path $stage "LICENSE.txt")
 Copy-Item (Join-Path $root "assets\ATTRIBUTION.md") -Destination (Join-Path $stage "THIRD-PARTY-NOTICES.txt")
+Copy-Item (Join-Path $root "installer\beam.cmd") -Destination (Join-Path $stage "beam.cmd")
 
 $zipName = "beam-$Version-portable.zip"
 $zipPath = Join-Path $OutputDir $zipName

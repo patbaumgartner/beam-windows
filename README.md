@@ -144,6 +144,9 @@ beam nightlight <on|off> [--json]
 ```
 
 Exit codes: `0` success · `1` failure · `2` bad arguments · `3` no projector · `4` unsupported.
+When the CLI component is installed, Beam adds its directory to the per-user `PATH`; open a new
+terminal and use `beam` directly. For the portable ZIP, run `.\beam.cmd` (or `.\Beam.Cli.exe`)
+from the extracted folder. Uninstall removes only Beam's own PATH entry.
 (The tray/hotkey "Apply projector mode now" simulates presentation mode when no projector is
 connected, but `beam apply` keeps its script-friendly contract and still exits `3` — scripts
 can rely on it.)

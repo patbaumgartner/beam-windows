@@ -48,7 +48,8 @@ The fastest ship loop when you only changed code (no installer/registry logic):
    `dotnet publish src\Beam.Cli -c Release`.
 3. Copy the fresh `Beam.exe` (and any changed DLLs) over the installed copy; the CLI is
    `Beam.Cli.exe`.
-4. Restart; verify `Beam.Cli.exe status --json` and the tray behaviour.
+4. Restart; verify `beam status --json` in a fresh shell (or `Beam.Cli.exe status --json`
+   directly) and the tray behaviour.
 5. When you're confident, rebuild the real installer and install it to catch packaging issues.
 
 > Installed copy lives at `%LOCALAPPDATA%\Programs\Beam\`. Several old/new builds share the
