@@ -74,9 +74,14 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   `PropVariantClear`. Switch/restore verify the default endpoint by reading it back, and stale
   inactive endpoints are not restored. Reflection tests pin the ABI without changing audio on
   the test machine.
+- **Presentation operations no longer block the tray UI.** Public apply/restore/re-evaluate/
+  enable/Night Light operations enter through the default task scheduler before any native call.
+  Display events are chained in order (and `PendingTask` covers the whole chain), disconnects
+  mark Restoring before dispatch, and safe-mode icon/menu updates marshal entirely to the UI
+  context instead of updating WinForms state from a worker.
 
-Test suite: **921 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 91, App 236,
-Tray 145) — was 826 at the issue-#1 fix.
+Test suite: **923 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 91, App 237,
+Tray 146) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14
 

@@ -174,4 +174,24 @@ public class TrayPresentationTests
 
         Assert.False(tray.HotkeyRegistered);
     }
+
+    [Fact]
+    public async Task SafeModeChanged_MarshalsEntireUpdateToUiContext()
+    {
+        var ui = new RecordingSynchronizationContext();
+
+        bool posted = await Task.Run(() => TrayService.TryPostToUi(ui, () => { }));
+
+        Assert.True(posted);
+        Assert.Equal(1, ui.PostCount); // even without a balloon, shell state is UI-only
+    }
+
+    private sealed class RecordingSynchronizationContext : SynchronizationContext
+    {
+        private int _postCount;
+        public int PostCount => Volatile.Read(ref _postCount);
+
+        public override void Post(SendOrPostCallback d, object? state) =>
+            Interlocked.Increment(ref _postCount); // deliberately do not execute shell updates
+    }
 }

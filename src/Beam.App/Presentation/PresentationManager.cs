@@ -70,6 +70,8 @@ public sealed class PresentationManager : IDisposable
     private bool _dpiChangeAttempted;
     private bool _nightLightChangeAttempted;
     private Task _pending = Task.CompletedTask;
+    private readonly object _displayEventLock = new();
+    private Task _displayEventTail = Task.CompletedTask;
     private DateTimeOffset _lastOwnMutationUtc = DateTimeOffset.MinValue;
     private int _consecutiveFailures;
     private bool _disposed;
@@ -509,11 +511,12 @@ public sealed class PresentationManager : IDisposable
     public Task SetEnabledAsync(bool enabled) => Track(RunExclusiveAsync(() => SetEnabledCoreAsync(enabled)));
 
     /// <summary>Manual Night Light on/off toggle from the tray Settings menu (roadmap 1.13).</summary>
-    public void SetNightLight(bool on)
+    public Task SetNightLightAsync(bool on) => Track(RunExclusiveAsync(() =>
     {
         Log.Info("Night Light manual toggle", "Manual", ("active", on.ToString()));
         _nightLight.SetActive(on);
-    }
+        return Task.CompletedTask;
+    }));
 
     /// <summary>B5: exclude a display (by <see cref="DisplayTarget.Identity"/>) from the trigger.</summary>
     public void IgnoreDisplay(string identity)
@@ -736,7 +739,37 @@ public sealed class PresentationManager : IDisposable
             return;
         }
 
-        Track(HandleDisplayChangedAsync(previous, current));
+        Task task;
+        lock (_displayEventLock)
+        {
+            // The serialization gate protects native mutations, but state evaluation before
+            // that gate must be ordered too. Chaining also makes PendingTask cover earlier
+            // display work rather than only the newest event in a hot-plug burst.
+            task = HandleDisplayChangedAfterAsync(_displayEventTail, previous, current);
+            _displayEventTail = task;
+        }
+
+        Track(task);
+    }
+
+    private async Task HandleDisplayChangedAfterAsync(
+        Task previousTask,
+        ConnectionSnapshot? previous,
+        ConnectionSnapshot current)
+    {
+        try
+        {
+            await previousTask.ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Log.Exception(ex, "Monitor", ("step", "previous-display-change"));
+        }
+
+        if (!_disposed)
+        {
+            await HandleDisplayChangedAsync(previous, current).ConfigureAwait(false);
+        }
     }
 
     private async Task HandleDisplayChangedAsync(ConnectionSnapshot? previous, ConnectionSnapshot current)
@@ -781,6 +814,9 @@ public sealed class PresentationManager : IDisposable
                 Log.Info("External display disconnected while presenting — requesting restore.", "Monitor",
                     ("previousDisplays", prevCount),
                     ("currentDisplays", currCount));
+                // Mark the transition before dispatching native work so a subsequent display
+                // event cannot observe Active and re-apply while this restore is queued.
+                _session.RequestRestore();
                 await RunExclusiveAsync(RestoreSequenceAsync).ConfigureAwait(false);
                 return;
             }
@@ -1700,8 +1736,11 @@ public sealed class PresentationManager : IDisposable
             ("error", error ?? "none"));
     }
 
-    private async Task RunExclusiveAsync(Func<Task> body)
+    private Task RunExclusiveAsync(Func<Task> body) => Task.Run(async () =>
     {
+        // A WaitAsync that completes synchronously would otherwise run the entire native
+        // sequence inline on a WinForms/WPF caller. Enter through the default scheduler so
+        // display/registry sleeps can never freeze the tray UI, then remain off that context.
         await _gate.WaitAsync().ConfigureAwait(false);
         try
         {
@@ -1711,7 +1750,7 @@ public sealed class PresentationManager : IDisposable
         {
             _gate.Release();
         }
-    }
+    });
 
     private Task Track(Task task)
     {

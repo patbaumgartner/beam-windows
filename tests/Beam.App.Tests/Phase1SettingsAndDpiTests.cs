@@ -191,11 +191,11 @@ public class Phase1SettingsAndDpiTests
     }
 
     [Fact]
-    public void SetNightLight_ManualToggle_DelegatesToController()
+    public async Task SetNightLight_ManualToggle_DelegatesToController()
     {
         using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
 
-        h.Manager.SetNightLight(true);
+        await h.Manager.SetNightLightAsync(true);
 
         Assert.Equal(1, h.NightLight.SetActiveCalls);
         Assert.True(h.NightLight.LastActive);

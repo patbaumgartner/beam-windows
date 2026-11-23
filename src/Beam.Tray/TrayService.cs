@@ -323,7 +323,7 @@ public sealed class TrayService : IDisposable
             {
                 bool on = _nightLightItem.Checked;
                 Log.Info("Night Light toggled manually from tray menu", "Tray", ("on", on.ToString()));
-                _presentation.SetNightLight(on);
+                _ = _presentation.SetNightLightAsync(on);
             };
             settings.DropDownItems.Add(_nightLightItem);
 
@@ -1105,8 +1105,26 @@ public sealed class TrayService : IDisposable
     /// leaving it does not (the next successful fix is itself visible via the status line).
     /// Marshalled to the UI thread because the event fires on the monitor loop.
     /// </summary>
+    internal static bool TryPostToUi(SynchronizationContext? ui, Action action)
+    {
+        if (ui is null || ui == SynchronizationContext.Current)
+        {
+            return false;
+        }
+
+        ui.Post(_ => action(), null);
+        return true;
+    }
+
     public void OnSafeModeChanged(bool active)
     {
+        if (TryPostToUi(_ui, () => OnSafeModeChanged(active)))
+        {
+            // The event normally arrives from a presentation worker. Marshal the entire
+            // update—not just the balloon—before touching NotifyIcon or menu state.
+            return;
+        }
+
         // B1: the red safe-mode badge and tooltip must reflect this immediately, on both
         // entering and leaving safe mode.
         _safeMode = active;
