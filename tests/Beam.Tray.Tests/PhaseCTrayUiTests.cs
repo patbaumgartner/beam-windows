@@ -246,6 +246,67 @@ public class PhaseCTrayUiTests
     }
 
     [Fact]
+    public void SettingsViewModel_DpiTargetAuto_CanBeUnchecked()
+    {
+        using var h = new Harness();
+        var vm = new SettingsViewModel(h.Manager);
+
+        vm.DpiTargetAuto = false;
+
+        Assert.False(vm.DpiTargetAuto);
+        Assert.Equal(100, h.Manager.DpiTargetPercent);
+        Assert.Equal(100, vm.DpiTargetPercent);
+    }
+
+    [Fact]
+    public void SettingsViewModel_DeviceChanges_UpdateBindings_AndResetRestoresAutoApply()
+    {
+        using var h = new Harness();
+        var vm = new SettingsViewModel(h.Manager);
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        h.Manager.SetDeviceAutoApply(@"monitor\DELL", autoApply: false);
+
+        Assert.Contains(nameof(vm.Devices), changed);
+        Assert.False(Assert.Single(vm.Devices).AutoApply);
+
+        vm.ResetToDefaults();
+
+        Assert.True(Assert.Single(vm.Devices).AutoApply);
+        Assert.Contains(nameof(vm.PausePresetIndex), changed);
+        Assert.Contains(nameof(vm.Devices), changed);
+    }
+
+    [Fact]
+    public void SettingsViewModel_ResetSafeMode_RaisesVisibilityChange()
+    {
+        using var h = new Harness();
+        var vm = new SettingsViewModel(h.Manager);
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        vm.ResetSafeMode();
+
+        Assert.Contains(nameof(vm.SafeModeVisibility), changed);
+        Assert.Equal("Collapsed", vm.SafeModeVisibility);
+    }
+
+    [Fact]
+    public void SettingsViewModel_Dispose_StopsLiveUpdates()
+    {
+        using var h = new Harness();
+        var vm = new SettingsViewModel(h.Manager);
+        var changed = new List<string?>();
+        vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
+
+        vm.Dispose();
+        h.Manager.SetDeviceAutoApply(@"monitor\DELL", autoApply: false);
+
+        Assert.Empty(changed);
+    }
+
+    [Fact]
     public void SettingsViewModel_ResetToDefaults_RestoresDefaults()
     {
         using var h = new Harness();

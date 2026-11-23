@@ -60,7 +60,7 @@
                 <ColumnDefinition Width="Auto"/>
               </Grid.ColumnDefinitions>
               <TextBlock Text="{Binding FriendlyName}" VerticalAlignment="Center"/>
-              <CheckBox Grid.Column="1" Content="Auto-apply" IsChecked="{Binding AutoApply, Mode=OneWay}" VerticalAlignment="Center" Margin="8,0"/>
+              <CheckBox Grid.Column="1" Content="Auto-apply" IsChecked="{Binding AutoApply, Mode=OneWay}" Tag="{Binding Identity}" Click="OnDeviceAutoApply" VerticalAlignment="Center" Margin="8,0"/>
               <Button Grid.Column="2" Content="Forget" Tag="{Binding Identity}" Click="OnForgetDevice" Padding="6,1"/>
             </Grid>
           </DataTemplate>

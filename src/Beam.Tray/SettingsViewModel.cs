@@ -13,7 +13,7 @@ namespace Beam.Tray;
 /// — no WPF types — so it is fully unit-testable in Beam.Tray.Tests. Every setter applies
 /// immediately; the manager persists (debounced through its own PersistSettings).
 /// </summary>
-public sealed class SettingsViewModel : INotifyPropertyChanged
+public sealed class SettingsViewModel : INotifyPropertyChanged, IDisposable
 {
     private readonly PresentationManager _pm;
 
@@ -23,6 +23,26 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public SettingsViewModel(PresentationManager pm)
     {
         _pm = pm ?? throw new ArgumentNullException(nameof(pm));
+        _pm.KnownDevicesChanged += OnKnownDevicesChanged;
+        _pm.IgnoredDisplaysChanged += OnIgnoredDisplaysChanged;
+        _pm.SafeModeChanged += OnSafeModeChanged;
+    }
+
+    private void OnKnownDevicesChanged(IReadOnlyList<DeviceProfile> _) => Raise(nameof(Devices));
+
+    private void OnIgnoredDisplaysChanged(IReadOnlyCollection<string> _) => Raise(nameof(IgnoredDisplays));
+
+    private void OnSafeModeChanged(bool _)
+    {
+        Raise(nameof(IsSafeMode));
+        Raise(nameof(SafeModeVisibility));
+    }
+
+    public void Dispose()
+    {
+        _pm.KnownDevicesChanged -= OnKnownDevicesChanged;
+        _pm.IgnoredDisplaysChanged -= OnIgnoredDisplaysChanged;
+        _pm.SafeModeChanged -= OnSafeModeChanged;
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -98,7 +118,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     public bool DpiTargetAuto
     {
         get => _pm.DpiTargetPercent == 0;
-        set { if (value) { _pm.DpiTargetPercent = 0; Raise(nameof(DpiTargetAuto)); Raise(nameof(DpiTargetPercent)); } }
+        set
+        {
+            _pm.DpiTargetPercent = value ? 0 : DpiTargetPercent;
+            Raise(nameof(DpiTargetAuto));
+            Raise(nameof(DpiTargetPercent));
+        }
     }
 
     /// <summary>C1: fixed DPI target in percent (only meaningful when <see cref="DpiTargetAuto"/> is false).</summary>
@@ -144,6 +169,8 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         {
             _pm.UnignoreDisplay(identity);
         }
+
+        Raise(nameof(IgnoredDisplays));
     }
 
     public IReadOnlyCollection<string> IgnoredDisplays => _pm.IgnoredDisplays;
@@ -163,6 +190,7 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
     {
         _pm.ClearSafeMode();
         Raise(nameof(IsSafeMode));
+        Raise(nameof(SafeModeVisibility));
     }
 
     /// <summary>C1: export the current settings JSON to <paramref name="path"/> (A4: sanitized on read-back by the store).</summary>
@@ -196,6 +224,11 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
             _pm.UnignoreDisplay(identity);
         }
 
+        foreach (DeviceProfile device in _pm.KnownDevices.ToList())
+        {
+            _pm.SetDeviceAutoApply(device.Identity, autoApply: true);
+        }
+
         Raise(nameof(IsEnabled));
         Raise(nameof(UseMode));
         Raise(nameof(UseDpi));
@@ -207,10 +240,12 @@ public sealed class SettingsViewModel : INotifyPropertyChanged
         Raise(nameof(ProjectorTopology));
         Raise(nameof(ProjectorTopologyIndex));
         Raise(nameof(PausePreset));
+        Raise(nameof(PausePresetIndex));
         Raise(nameof(RestoreOnDisconnect));
         Raise(nameof(DpiTargetPercent));
         Raise(nameof(DpiTargetAuto));
         Raise(nameof(PreferNativeMode));
         Raise(nameof(IgnoredDisplays));
+        Raise(nameof(Devices));
     }
 }

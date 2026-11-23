@@ -129,16 +129,21 @@ public class PhaseCSettingsWindowTests
     {
         using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
 
+        var resumed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Session.StateChanged += e =>
+        {
+            if (e is { From: SessionState.Paused, To: SessionState.Idle })
+            {
+                resumed.TrySetResult();
+            }
+        };
+
         h.Manager.PauseFor(TimeSpan.FromMilliseconds(80));
         Assert.Equal(SessionState.Paused, h.Session.State);
 
-        // The pause timer fires on a thread-pool thread; wait for the auto-resume.
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (h.Session.State == SessionState.Paused && DateTime.UtcNow < deadline)
-        {
-            await Task.Delay(25);
-        }
-
+        // Await the actual transition and its queued manager operation, not a sleep loop.
+        await resumed.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await h.Manager.PendingTask;
         Assert.Equal(SessionState.Idle, h.Session.State); // pre-pause state was Idle
     }
 

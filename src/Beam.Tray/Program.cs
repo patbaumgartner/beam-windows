@@ -277,6 +277,19 @@ internal static class Program
                 ("hotkey", presentation.Hotkey));
         }
 
+        presentation.HotkeyChanged += value =>
+        {
+            if (HotkeyParser.TryParse(value, out HotkeyCombo? changed) && changed is not null)
+            {
+                context.Tray.EnableHotkey(changed);
+            }
+            else
+            {
+                Log.Warn("Changed hotkey is invalid — disabling it", "Tray", ("hotkey", value));
+                context.Tray.EnableHotkey(null);
+            }
+        };
+
         // Recover first: if a previous Beam was killed mid-fix, restore the original
         // display configuration before we start watching for new changes.
         presentation.TryRecoverAsync().GetAwaiter().GetResult();

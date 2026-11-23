@@ -221,10 +221,19 @@ public sealed class PresentationManager : IDisposable
         get => _hotkey;
         set
         {
-            _hotkey = SanitizeHotkey(value);
+            string sanitized = SanitizeHotkey(value);
+            bool changed = !string.Equals(_hotkey, sanitized, StringComparison.Ordinal);
+            _hotkey = sanitized;
             PersistSettings();
+            if (changed)
+            {
+                HotkeyChanged?.Invoke(_hotkey);
+            }
         }
     }
+
+    /// <summary>Raised after a new, sanitized hotkey value should be registered.</summary>
+    public event Action<string>? HotkeyChanged;
 
     /// <summary>Returns the combo when it is parseable and not reserved by Windows; otherwise the default.</summary>
     private static string SanitizeHotkey(string? value) =>
@@ -336,7 +345,8 @@ public sealed class PresentationManager : IDisposable
     public IReadOnlyCollection<string> IgnoredDisplays => _ignoredDisplays;
 
     /// <summary>
-    /// B5: external active paths from the most recent topology query, minus ignored displays.
+    /// B5: all external active paths from the most recent topology query. Kept unfiltered so
+    /// ignored devices remain visible/checkable in the tray; trigger filtering is separate.
     /// Cache only — safe to read from the UI thread (A6: never QueryDisplayConfig there).
     /// </summary>
     public IReadOnlyList<DisplayPath> CurrentExternalPaths => _currentExternalPaths;
@@ -577,7 +587,7 @@ public sealed class PresentationManager : IDisposable
     {
         _ignoredDisplays = next;
         // Re-filter the cached topology — no platform query, so this is safe on the UI thread (A6).
-        _currentExternalPaths = _lastTopology.ExternalPathsIgnoring(next);
+        _currentExternalPaths = _lastTopology.ExternalPaths;
         IgnoredDisplaysChanged?.Invoke(next);
         PersistSettings(); // B4: the ignore list lives in settings.json
     }
@@ -1500,7 +1510,7 @@ public sealed class PresentationManager : IDisposable
     {
         DisplayTopology topology = _topology.Query();
         _lastTopology = topology;
-        _currentExternalPaths = topology.ExternalPathsIgnoring(_ignoredDisplays);
+        _currentExternalPaths = topology.ExternalPaths;
         RecordKnownDevices(topology); // C1: feed the settings Devices table
         return topology;
     }

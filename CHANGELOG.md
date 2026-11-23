@@ -94,9 +94,14 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   serialize across tray/CLI (with async-safe cross-thread release), but the tray no longer makes
   every mutating CLI command fail. `apply --dry-run` takes no lock. A real integration check with
   the singleton held reaches the expected no-projector result instead of a lock error.
+- **Settings and device controls now work end to end.** Changing the hotkey immediately
+  unregisters/re-registers it; Devices Auto-apply clicks update the manager; ignored devices stay
+  visible and checked so they can be unignored. Live device/safe-mode changes update the window,
+  Automatic DPI can be unchecked, reset restores Auto-apply and combo state, and closed windows
+  unsubscribe instead of leaking.
 
-Test suite: **945 tests, 0 failed** (Architecture 11, Core 346, Cli 96, Windows 91, App 244,
-Tray 157) — was 826 at the issue-#1 fix.
+Test suite: **950 tests, 0 failed** (Architecture 11, Core 346, Cli 96, Windows 91, App 245,
+Tray 161) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14
 

@@ -19,6 +19,15 @@ public partial class SettingsWindow : Window
         _vm = vm ?? throw new ArgumentNullException(nameof(vm));
         InitializeComponent();
         DataContext = vm;
+        Closed += (_, _) => vm.Dispose();
+    }
+
+    private void OnDeviceAutoApply(object sender, RoutedEventArgs e)
+    {
+        if (sender is System.Windows.Controls.CheckBox box && box.Tag is string identity)
+        {
+            _vm.SetDeviceAutoApply(identity, box.IsChecked == true);
+        }
     }
 
     private void OnForgetDevice(object sender, RoutedEventArgs e)

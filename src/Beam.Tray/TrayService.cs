@@ -613,6 +613,11 @@ public sealed class TrayService : IDisposable
     /// </summary>
     public void EnableHotkey(HotkeyCombo? combo)
     {
+        if (TryPostToUi(_ui, () => EnableHotkey(combo)))
+        {
+            return;
+        }
+
         DisableHotkey();
         if (combo is null)
         {

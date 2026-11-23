@@ -148,6 +148,20 @@ public class PersistedSettingsTests
     }
 
     [Fact]
+    public void Hotkey_ChangeRaisesRegistrationEvent_WithSanitizedValue()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch());
+        var changes = new List<string>();
+        h.Manager.HotkeyChanged += changes.Add;
+
+        h.Manager.Hotkey = "Ctrl+Shift+O";
+        h.Manager.Hotkey = "Ctrl+Shift+O"; // no duplicate registration
+        h.Manager.Hotkey = "Win+P";        // reserved -> default
+
+        Assert.Equal(new[] { "Ctrl+Shift+O", BeamSettings.Defaults.Hotkey }, changes);
+    }
+
+    [Fact]
     public void ProjectorTopology_Persists_AndSurvivesRestart()
     {
         var store = new FakeSettingsStore();

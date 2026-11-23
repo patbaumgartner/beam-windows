@@ -75,7 +75,7 @@ public class IgnoredDisplayTests
     }
 
     [Fact]
-    public void SetIgnoredDisplays_ReplacesList_AndFiltersCache()
+    public void SetIgnoredDisplays_ReplacesList_ButKeepsDeviceAvailableToUnignore()
     {
         using var h = new PresentationHarness(Topologies.MirroredWithMismatch());
         h.Manager.RefreshExternalPaths(); // warm the cache (fake topology — safe in tests)
@@ -85,11 +85,12 @@ public class IgnoredDisplayTests
         h.Manager.SetIgnoredDisplays(new[] { ProjectorIdentity, "", ProjectorIdentity });
 
         Assert.Single(h.Manager.IgnoredDisplays);
-        Assert.Empty(h.Manager.CurrentExternalPaths);
+        Assert.Single(h.Manager.CurrentExternalPaths);
+        Assert.Contains(h.Manager.CurrentExternalPaths[0].Target.Identity, h.Manager.IgnoredDisplays);
     }
 
     [Fact]
-    public void IgnoreDisplay_RefiltersCache_WithoutNewTopologyQuery()
+    public void IgnoreDisplay_KeepsCacheAvailable_WithoutNewTopologyQuery()
     {
         using var h = new PresentationHarness(Topologies.MirroredWithMismatch());
         h.Manager.RefreshExternalPaths();
@@ -98,7 +99,7 @@ public class IgnoredDisplayTests
 
         h.Manager.IgnoreDisplay(ProjectorIdentity); // cache-only — must not query (A6)
 
-        Assert.Empty(h.Manager.CurrentExternalPaths);
+        Assert.Single(h.Manager.CurrentExternalPaths);
         Assert.Equal(queriesAfterWarm, h.Topology.QueryCount);
     }
 }
