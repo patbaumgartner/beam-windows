@@ -24,8 +24,10 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 25
     steps:
-      - name: Checkout
+      - name: Checkout requested tag
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref }}
 
       - name: Setup .NET
         uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
@@ -34,20 +36,33 @@ jobs:
           cache: true
           cache-dependency-path: '**/*.csproj'
 
-      - name: Resolve version
+      - name: Restore and verify quality gates
+        run: |
+          dotnet restore Beam.sln
+          dotnet format Beam.sln --verify-no-changes --no-restore
+          dotnet build Beam.sln -c Release --no-restore
+          dotnet test Beam.sln -c Release --no-build --collect:"XPlat Code Coverage"
+          ./eng/coverage.ps1 -NoTest -Enforce
+          ./eng/check-links.ps1
+
+      - name: Resolve version and verify tag provenance
         id: version
         shell: pwsh
         run: |
           $tag = if ($env:GITHUB_REF_TYPE -eq 'tag') { $env:GITHUB_REF_NAME } else { '${{ inputs.tag }}' }
+          if ($tag -notmatch '^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$') { throw "Invalid release tag: $tag" }
+          $head = (git rev-parse HEAD).Trim()
+          $tagCommit = (git rev-parse "$tag^{}").Trim()
+          if ($head -ne $tagCommit) { throw "Checked out $head, but $tag points at $tagCommit" }
           $v = $tag.TrimStart('v')
           Write-Output "version=$v" >> $env:GITHUB_OUTPUT
           Write-Output "tag=$tag" >> $env:GITHUB_OUTPUT
 
-      - name: Publish tray
-        run: dotnet publish src/Beam.Tray -c Release -p:Version=${{ steps.version.outputs.version }}
+      - name: Publish self-contained tray
+        run: dotnet publish src/Beam.Tray -c Release -r win-x64 --self-contained true -p:Version=${{ steps.version.outputs.version }} -o src/Beam.Tray/bin/Release/net10.0-windows/publish
 
-      - name: Publish CLI
-        run: dotnet publish src/Beam.Cli -c Release -p:Version=${{ steps.version.outputs.version }}
+      - name: Publish self-contained CLI
+        run: dotnet publish src/Beam.Cli -c Release -r win-x64 --self-contained true -p:Version=${{ steps.version.outputs.version }} -o src/Beam.Cli/bin/Release/net10.0-windows/publish
 
       # No code signing anywhere (ADR-0016): artifacts ship unsigned, integrity is
       # provided by SHA256SUMS.txt attached to the release.

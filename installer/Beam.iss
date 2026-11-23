@@ -1,5 +1,5 @@
 ; Beam installer — Inno Setup script.
-; Build with ISCC.exe (Inno Setup 6.2+) or via the GitHub Actions release workflow.
+; Build with ISCC.exe (Inno Setup 6.3+) or via the GitHub Actions release workflow.
 ; Usage:
 ;   ISCC.exe installer\Beam.iss
 ;   (expects publish output at src\Beam.Tray\bin\Release\net10.0-windows\publish)
@@ -56,6 +56,9 @@ Name: "autostart"; Description: "Launch Beam at &sign-in"; GroupDescription: "St
 Source: "{#MyAppDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: tray
 ; CLI — a thin, self-contained exe (component, on by default).
 Source: "{#MyCliDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Components: cli
+; Required license and asset attribution notices.
+Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
+Source: "..\assets\ATTRIBUTION.md"; DestDir: "{app}"; DestName: "THIRD-PARTY-NOTICES.txt"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"

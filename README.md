@@ -91,6 +91,9 @@ Beam is not code-signed (see [ADR-0016](docs/04-adr/ADR-0016-distribution.md)), 
 Windows SmartScreen may show an "unknown publisher" warning — that's expected; each
 release also ships `SHA256SUMS.txt` to verify the download.
 Tick **Launch Beam at sign-in** when prompted. That's it — Beam lives in the tray.
+The installer and portable ZIP are **self-contained**: no .NET runtime or SDK installation is
+required on the machine where Beam runs. Each package includes the MIT license, third-party
+attribution, and a `SHA256SUMS.txt` file for integrity verification.
 
 ### Build from source
 

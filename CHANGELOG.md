@@ -11,9 +11,11 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
 ### Added
 - **Extend-to-projector option** — a new persistent setting (`ProjectorTopology` in `%LOCALAPPDATA%\Beam\settings.json`, shown as "Projector screen" in Settings) chooses between **Mirror** (default) and **Extend** when Beam applies presentation mode; unknown or missing values fall back to Mirror. Extend is applied via `SetDisplayConfig` with `SDC_TOPOLOGY_EXTEND`, putting the best 16:9 mode on the first connected external display.
 - **Simulated presentation mode for manual apply** — clicking "Apply projector mode now" in the tray (or pressing the hotkey) with no external monitor connected no longer fails and restores immediately; Beam now simulates presentation mode (stays Active: Night Light off, DPI applied, presentation extras on), and undo restores the previous state. Automatic triggers on display changes are unchanged and still require a real projector.
+- **Self-contained distributions** — the installer and portable ZIP now include the complete `win-x64` runtime, so Beam works on clean machines without installing .NET. Packages include the MIT license and third-party attribution; publish outputs are freshly staged and checked for expected executables, runtime files, and matching versions.
 
 ### Changed
 - **Win+P stays with Windows** — the projector flyout is Windows' own shortcut, so Beam never registers it: `Win+P` (any casing/modifier spelling of just the Windows key + P) is rejected as a configurable Beam hotkey and falls back to the default **Win+Alt+P**.
+- **Release provenance and versioning are enforced** — manual release dispatch checks out the requested tag and verifies its commit before building; stable releases run restore, formatting, build, tests, coverage, and link gates. Version overrides now flow into assembly/file/product metadata. The SDK stays on its pinned feature band while allowing security patch updates.
 
 ### Fixed
 - **Verify-after-mode no longer reads a stale topology** ([issue #1](https://github.com/patbaumgartner/beam-windows/issues/1)).

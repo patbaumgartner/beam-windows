@@ -7,7 +7,7 @@ stamped into the assemblies at build time and into the installer at packaging ti
 ## Version scheme
 
 - `0.2.0` — **Presenter Edition** (2026-11-14): settings + diagnostics windows,
-  presentation extras, signed releases. A `0.3.0` bump means user-visible features; a
+  presentation extras, unsigned releases. A `0.3.0` bump means user-visible features; a
   `0.2.x` bump means bug fixes on this line.
 - `0.1.1` — the patch line shipping the Nov-1 fixes (sticky cursor, decoupling).
 - The **snapshot** label is always built from the latest `main` and is *not* a version — it
@@ -33,8 +33,11 @@ pwsh eng/check-links.ps1
 .\installer\build.ps1 -Version 0.2.0     # version override
 ```
 
-`installer\build.ps1` publishes `Beam.Tray` and `Beam.Cli`, runs `Beam.iss` through
-`ISCC.exe`, and reports the produced `BeamSetup-<version>.exe`.
+`installer\build.ps1` reads the default version from `Directory.Build.props`, publishes both
+apps as self-contained `win-x64` binaries into freshly cleaned output directories, runs
+`Beam.iss` through `ISCC.exe`, and reports the produced `BeamSetup-<version>.exe`. End users do
+not need to install a .NET runtime. A `-Version` override is passed to both projects, so artifact
+names, file/product versions, diagnostics, and CLI output stay consistent.
 
 ## Repackaging an installed copy after a fix
 

@@ -26,21 +26,42 @@ New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 
 $trayPublish = Join-Path $root "src\Beam.Tray\bin\Release\net10.0-windows\publish"
 $cliPublish  = Join-Path $root "src\Beam.Cli\bin\Release\net10.0-windows\publish"
-foreach ($dir in @($trayPublish, $cliPublish)) {
-    if (-not (Test-Path (Join-Path $dir "*.exe"))) { throw "Publish output missing: $dir (run dotnet publish -c Release first)" }
+$expected = @(
+    @{ Dir = $trayPublish; Exe = "Beam.exe" },
+    @{ Dir = $cliPublish; Exe = "Beam.Cli.exe" }
+)
+foreach ($item in $expected) {
+    $exe = Join-Path $item.Dir $item.Exe
+    if (-not (Test-Path $exe)) { throw "Publish output missing: $exe (run the self-contained publish first)" }
+    foreach ($runtimeFile in @("coreclr.dll", "hostfxr.dll", "hostpolicy.dll")) {
+        if (-not (Test-Path (Join-Path $item.Dir $runtimeFile))) {
+            throw "$($item.Dir) is not a self-contained publish (missing $runtimeFile)"
+        }
+    }
+    $productVersion = (Get-Item $exe).VersionInfo.ProductVersion
+    if ($productVersion -ne $Version -and $productVersion -notlike "$Version+*") {
+        throw "$exe has product version '$productVersion', expected '$Version'"
+    }
 }
 
-# Merge both publish outputs into one staging dir (Beam.exe tray + Beam.Cli.exe CLI + shared DLLs).
-$stage = Join-Path $env:TEMP "beam-snapshot-$Version"
+# Merge fresh outputs into a clean staging dir (Beam.exe tray + Beam.Cli.exe CLI + shared DLLs).
+$stage = Join-Path $OutputDir ".beam-stage-$Version"
 Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
 Copy-Item "$trayPublish\*" -Destination $stage -Recurse -Force
 Copy-Item "$cliPublish\*"  -Destination $stage -Recurse -Force
+Copy-Item (Join-Path $root "LICENSE") -Destination (Join-Path $stage "LICENSE.txt")
+Copy-Item (Join-Path $root "assets\ATTRIBUTION.md") -Destination (Join-Path $stage "THIRD-PARTY-NOTICES.txt")
 
 $zipName = "beam-$Version-portable.zip"
 $zipPath = Join-Path $OutputDir $zipName
 if (Test-Path $zipPath) { Remove-Item $zipPath -Force }
-Compress-Archive -Path "$stage\*" -DestinationPath $zipPath -CompressionLevel Optimal
+try {
+    Compress-Archive -Path "$stage\*" -DestinationPath $zipPath -CompressionLevel Optimal
+}
+finally {
+    Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+}
 
 # SHA256SUMS covers the portable zip and, when present in the same dir, the installer.
 $sums = Join-Path $OutputDir "SHA256SUMS.txt"
