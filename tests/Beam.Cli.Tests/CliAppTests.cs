@@ -362,6 +362,24 @@ public class CliAppTests
     }
 
     [Fact]
+    public void ApplyDryRun_DoesNotAcquireOperationLock()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        int acquires = 0;
+        h.LockFactory = () =>
+        {
+            acquires++;
+            return NoopLock.Instance;
+        };
+
+        int code = h.Run("apply", "--dry-run", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(0, acquires);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+    }
+
+    [Fact]
     public void Apply_AppliesModeDpiAndNightLight_AndWritesJournal()
     {
         var h = new CliHarness(CliTopologies.Mirrored());
@@ -704,7 +722,7 @@ public class CliAppTests
         Assert.Equal(ExitCodes.InvalidArguments, code);
     }
 
-    // ── Phase A (A1): single-instance lock on mutating commands ─────────────────
+    // ── Cross-process display-operation lock on mutating commands ─────────────────
 
     [Fact]
     public void MutatingCommand_AcquiresAndReleasesLock()
@@ -734,7 +752,7 @@ public class CliAppTests
         int code = h.Run("apply");
 
         Assert.Equal(ExitCodes.Failure, code);
-        Assert.Contains("single-instance", h.Errors);
+        Assert.Contains("display operation", h.Errors);
         Assert.Equal(0, h.Mode.ApplyCalls);
         Assert.Equal(0, h.Journal.BeginCalls);
     }
@@ -830,7 +848,7 @@ public class CliAppTests
         Assert.Equal(ExitCodes.Failure, code);
         using JsonDocument doc = JsonDocument.Parse(h.Output);
         Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
-        Assert.Contains("single-instance", doc.RootElement.GetProperty("error").GetString());
+        Assert.Contains("display operation", doc.RootElement.GetProperty("error").GetString());
         Assert.Equal(0, h.Mode.ApplyCalls);
     }
 

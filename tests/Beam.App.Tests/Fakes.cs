@@ -402,7 +402,8 @@ internal sealed class PresentationHarness : IDisposable
         bool wireExtras = true,
         bool wireStatus = true,
         TimeSpan? verifySettleInterval = null,
-        int? verifyMaxAttempts = null)
+        int? verifyMaxAttempts = null,
+        Func<IDisposable?>? operationLockFactory = null)
     {
         Topology.Topology = topology;
         Dpi.ReadResult = dpi;
@@ -423,7 +424,8 @@ internal sealed class PresentationHarness : IDisposable
             audio: wireExtras ? Audio : null,
             statusWriter: wireStatus ? Status : null,
             verifySettleInterval: verifySettleInterval,
-            verifyMaxAttempts: verifyMaxAttempts);
+            verifyMaxAttempts: verifyMaxAttempts,
+            operationLockFactory: operationLockFactory);
 
         // A successful mode apply resolves the mismatch: the fake topology flips to the
         // fixed 16:9 clone so the manager's verify-after-mode step can observe it.

@@ -17,8 +17,8 @@ DisplayNative.SetProcessDpiAwarenessContext(DpiAwarenessPerMonitorV2);
 // output (and may be JSON that another tool parses).
 Log.SetSink(new FileLogSink());
 
-// A1: mutating commands (apply/restore/dpi set/nightlight) take the same per-user
-// single-instance mutex as the tray app, so CLI and tray can never race each other.
+// Mutating commands (apply/restore/dpi set/nightlight) take a short-lived operation
+// semaphore shared with the tray. The tray's lifetime singleton never blocks the CLI.
 // B6: `beam status` merges the running tray's live status file (status.json) when present.
 var app = new CliApp(
     new DisplayInventory(),
@@ -26,7 +26,7 @@ var app = new CliApp(
     new WindowsDpiController(),
     new NightLightController(),
     new JournalStore(),
-    lockFactory: () => SingleInstanceLock.TryAcquire(),
+    lockFactory: () => DisplayOperationLock.TryAcquire(),
     statusReader: () => StatusFile.TryRead());
 
 return app.Run(args);

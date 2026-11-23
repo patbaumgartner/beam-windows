@@ -3,9 +3,9 @@ using Beam.Core.Startup;
 namespace Beam.Core.Tests;
 
 /// <summary>
-/// Tests for the shared single-instance mutex (Phase A, A1): the tray holds it for its
-/// lifetime, the CLI takes it per mutating command. Tests always use a unique mutex
-/// name so parallel test runs never contend on the production Local\ lock.
+/// Tests for the tray's lifetime single-instance mutex. Cross-process display operations
+/// use DisplayOperationLock instead. Tests always use a unique mutex name so parallel runs
+/// never contend on the production Local\ lock.
 /// </summary>
 public class SingleInstanceLockTests
 {

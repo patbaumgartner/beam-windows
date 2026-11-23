@@ -86,8 +86,13 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   is deferred during Applying/Restoring. The tray's primary Pause action honors the configured
   15-minute/1-hour/indefinite preset. Public operations now run in FIFO invocation order, so an
   immediate Apply → Restore sequence cannot let Restore evaluate the pre-Apply Idle state.
+- **CLI commands work while the tray is running.** The tray's lifetime singleton is now separate
+  from a short-lived named operation semaphore shared by both processes. Mutations still
+  serialize across tray/CLI (with async-safe cross-thread release), but the tray no longer makes
+  every mutating CLI command fail. `apply --dry-run` takes no lock. A real integration check with
+  the singleton held reaches the expected no-projector result instead of a lock error.
 
-Test suite: **940 tests, 0 failed** (Architecture 11, Core 343, Cli 95, Windows 91, App 243,
+Test suite: **945 tests, 0 failed** (Architecture 11, Core 346, Cli 96, Windows 91, App 244,
 Tray 157) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

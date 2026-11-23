@@ -53,8 +53,8 @@ public sealed class CliApp
         _journal = journal ?? throw new ArgumentNullException(nameof(journal));
         _out = output ?? Console.Out;
         _error = error ?? Console.Error;
-        // When null, the real single-instance lock is used; tests inject a fake so
-        // parallel test runs never contend on the production Local\ mutex.
+        // When null, the real display-operation semaphore is used; tests inject a fake so
+        // parallel test runs never contend on the production named semaphore.
         _lockFactory = lockFactory;
         _statusReader = statusReader;
     }
@@ -87,16 +87,15 @@ public sealed class CliApp
             return ExitCodes.InvalidArguments;
         }
 
-        // Phase A (A1): mutating commands hold the same per-user single-instance mutex as
-        // the tray app for the duration of the command, so a scripted `beam apply` can
-        // never race the tray's fix sequence (concurrent SetDisplayConfig / journal writes).
+        // Mutating commands share a short-lived operation semaphore with the tray. The
+        // tray's lifetime singleton is deliberately unrelated and never blocks the CLI.
         IDisposable? lease = null;
-        if (RequiresSingleInstanceLock(command, options))
+        if (RequiresOperationLock(command, options))
         {
             lease = AcquireLock();
             if (lease is null)
             {
-                const string msg = "Another Beam instance is holding the single-instance lock — try again in a moment.";
+                const string msg = "Another Beam display operation is still running — try again shortly.";
                 if (options.Json)
                 {
                     WriteJson(new { version = Version, success = false, error = msg });
@@ -141,12 +140,12 @@ public sealed class CliApp
 
     /// <summary>
     /// Commands that mutate display state, Night Light, or the journal must hold the
-    /// single-instance lock; read-only commands (help, status, devices, dpi read) stay
-    /// lock-free so monitoring and scripting never block behind the tray.
+    /// operation lock; read-only commands and dry runs stay lock-free so monitoring and
+    /// scripting never block behind another Beam operation.
     /// </summary>
-    private static bool RequiresSingleInstanceLock(string command, CliOptions options) => command switch
+    private static bool RequiresOperationLock(string command, CliOptions options) => command switch
     {
-        "apply" => true,
+        "apply" => !options.DryRun,
         "restore" => true,
         "nightlight" => true,
         "dpi" => options.Positionals.Count > 0
@@ -156,11 +155,11 @@ public sealed class CliApp
 
     /// <summary>
     /// Acquires the lock via the injected factory (the composition root passes the real
-    /// <see cref="SingleInstanceLock"/>). Null means the real lock; a null return means
+    /// <see cref="DisplayOperationLock"/>). Null means the real lock; a null return means
     /// the lock is held elsewhere and the command must be refused.
     /// </summary>
     private IDisposable? AcquireLock() =>
-        _lockFactory is null ? SingleInstanceLock.TryAcquire() : _lockFactory();
+        _lockFactory is null ? DisplayOperationLock.TryAcquire() : _lockFactory();
 
     // ── Commands ────────────────────────────────────────────────────────────────
 

@@ -65,6 +65,7 @@ public sealed class PresentationManager : IDisposable
 
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly object _operationLock = new();
+    private readonly Func<IDisposable?>? _operationLockFactory;
     private Task _operationTail = Task.CompletedTask;
     private IReadOnlyList<NightLightSnapshot>? _nightLightSnapshot;
     private IReadOnlyList<JournalDpiEntry>? _dpiSnapshot;
@@ -370,7 +371,8 @@ public sealed class PresentationManager : IDisposable
         IAudioController? audio = null,
         IStatusWriter? statusWriter = null,
         TimeSpan? verifySettleInterval = null,
-        int? verifyMaxAttempts = null)
+        int? verifyMaxAttempts = null,
+        Func<IDisposable?>? operationLockFactory = null)
     {
         _changes = changes ?? throw new ArgumentNullException(nameof(changes));
         _topology = topology ?? throw new ArgumentNullException(nameof(topology));
@@ -388,6 +390,7 @@ public sealed class PresentationManager : IDisposable
         _dnd = dnd;
         _audio = audio;
         _statusWriter = statusWriter;
+        _operationLockFactory = operationLockFactory;
 
         if (statusWriter is not null)
         {
@@ -1823,14 +1826,37 @@ public sealed class PresentationManager : IDisposable
             Log.Exception(ex, "Sequence", ("step", "previous-operation"));
         }
 
-        await _gate.WaitAsync().ConfigureAwait(false);
+        IDisposable? operationLease = null;
+        if (_operationLockFactory is not null)
+        {
+            operationLease = _operationLockFactory();
+            if (operationLease is null)
+            {
+                Log.Warn("Another Beam process is mutating display state — operation not run", "Sequence");
+                if (_session.State == SessionState.Restoring)
+                {
+                    _session.MarkRestoreFailed();
+                }
+
+                return;
+            }
+        }
+
         try
         {
-            await body().ConfigureAwait(false);
+            await _gate.WaitAsync().ConfigureAwait(false);
+            try
+            {
+                await body().ConfigureAwait(false);
+            }
+            finally
+            {
+                _gate.Release();
+            }
         }
         finally
         {
-            _gate.Release();
+            operationLease?.Dispose();
         }
     }
 

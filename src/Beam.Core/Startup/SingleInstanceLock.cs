@@ -1,12 +1,11 @@
 namespace Beam.Core.Startup;
 
 /// <summary>
-/// The per-user single-instance lock shared by the tray app and the CLI.
+/// The per-user tray single-instance mutex.
 ///
-/// Both processes must agree on one name so that a <c>beam apply</c> from a shell
-/// cannot race the tray's fix sequence (two processes calling SetDisplayConfig and
-/// writing journal.json at the same time). The tray holds the mutex for its whole
-/// lifetime; the CLI acquires it only for the duration of a mutating command.
+/// The tray holds this for its whole lifetime to prevent duplicate monitors. Cross-process
+/// display serialization uses <see cref="DisplayOperationLock"/> instead, so normal CLI
+/// commands remain available while the tray is running.
 ///
 /// <c>Local\</c> scopes the mutex to the current session, so a Beam running in another
 /// user's session (or an RDP session) never blocks us.

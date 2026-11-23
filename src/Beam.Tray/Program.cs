@@ -161,7 +161,8 @@ internal static class Program
 
         // Single instance per user. Without this, an autostart instance and a manual
         // launch would run two monitor loops and could double-apply the display fix.
-        // The name is shared with the CLI (A1) via SingleInstanceLock.MutexName.
+        // This lifetime singleton is separate from DisplayOperationLock, which the tray
+        // and CLI acquire only around individual display mutations.
         bool isFirstInstance;
         using var singleInstance = new Mutex(initiallyOwned: true, SingleInstanceLock.MutexName, out isFirstInstance);
         if (!isFirstInstance)
@@ -210,7 +211,8 @@ internal static class Program
             keepAwake: keepAwake,
             dnd: new DndController(),
             audio: new AudioController(),
-            statusWriter: new StatusFile());
+            statusWriter: new StatusFile(),
+            operationLockFactory: () => DisplayOperationLock.TryAcquire());
 
         // TrayApplicationContext owns the hidden host form and the tray icon.
         // Application.Run(context) enters the WinForms message loop. It returns only

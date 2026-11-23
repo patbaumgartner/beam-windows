@@ -204,7 +204,7 @@ internal sealed class CliHarness
 
     /// <summary>
     /// Lock factory injected into <see cref="CliApp"/>. Defaults to a no-op lease so
-    /// parallel tests never contend on the real Local\Beam.SingleInstance mutex;
+    /// parallel tests never contend on the real display-operation semaphore;
     /// the A1 lock tests replace it with a counting/failing factory.
     /// </summary>
     public Func<IDisposable?>? LockFactory { get; set; } = () => NoopLock.Instance;
