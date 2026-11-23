@@ -4,9 +4,11 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Current version is **0.2.0** (per `installer/build.ps1` default).
+Current version is **0.3.0** (per `installer/build.ps1` default).
 
 ## [Unreleased]
+
+## [0.3.0] — 2026-11-23
 
 ### Added
 - **Extend-to-projector option** — a new persistent setting (`ProjectorTopology` in `%LOCALAPPDATA%\Beam\settings.json`, shown as "Projector screen" in Settings) chooses between **Mirror** (default) and **Extend** when Beam applies presentation mode; unknown or missing values fall back to Mirror. Extend is applied via `SetDisplayConfig` with `SDC_TOPOLOGY_EXTEND`, putting the best 16:9 mode on the first connected external display.
@@ -16,7 +18,8 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
 
 ### Changed
 - **Win+P stays with Windows** — the projector flyout is Windows' own shortcut, so Beam never registers it: `Win+P` (any casing/modifier spelling of just the Windows key + P) is rejected as a configurable Beam hotkey and falls back to the default **Win+Alt+P**.
-- **Release provenance and versioning are enforced** — manual release dispatch checks out the requested tag and verifies its commit before building; stable releases run restore, formatting, build, tests, coverage, and link gates. Version overrides now flow into assembly/file/product metadata. The SDK stays on its pinned feature band while allowing security patch updates.
+- **Release provenance and versioning are enforced** — manual release dispatch checks out the requested tag and verifies its commit before building; stable releases run restore, formatting, build, tests, coverage, mutation, and link gates. Version overrides now flow into assembly/file/product metadata. The SDK stays on its pinned feature band while allowing security patch updates.
+- Version bumped to **0.3.0** in `Directory.Build.props`; `installer/Beam.iss`, the release workflow default tag and the bug-report template placeholder all point at 0.3.0.
 
 ### Fixed
 - **Verify-after-mode no longer reads a stale topology** ([issue #1](https://github.com/patbaumgartner/beam-windows/issues/1)).

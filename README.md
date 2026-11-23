@@ -77,7 +77,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
 - 🧪 **Tested** — 983 xUnit tests, with the application layer driven entirely through
-  fake ports. Core is at ~90% line coverage and App at ~91%; see
+  fake ports. Core is at ~91% line coverage and App at ~94%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
 
@@ -219,7 +219,7 @@ JRSoftware.InnoSetup`).
 
 ```powershell
 .\installer\build.ps1                 # publish + compile to .\artifacts
-.\installer\build.ps1 -Version 0.2.0  # tag a different version
+.\installer\build.ps1 -Version 0.3.0  # tag a different version
 ```
 
 CI builds a snapshot installer on every push to `main` and a release installer for every
@@ -246,13 +246,12 @@ against the hardware matrix in [test-strategy.md](docs/05-delivery/test-strategy
 ## Roadmap & status
 
 Phase 0–5 milestones are tracked in [docs/05-delivery/roadmap.md](docs/05-delivery/roadmap.md).
-Current status: **0.2.0 "Presenter Edition" shipped 2026-11-14** — tray, CLI, installer +
-CI, settings & diagnostics windows, presentation extras; releases (installer + portable
-zip + SHA256SUMS) published from GitHub Actions, unsigned by decision (ADR-0016).
-**Unreleased (post-0.2.0):** Mirror/Extend projector-screen setting, simulated presentation
-mode for manual apply without a projector, `Win+P` reserved for Windows (hotkey defaults to
-`Win+Alt+P` and `Win+P` is rejected), and a fix for concurrent settings saves colliding on
-`settings.json.tmp` — see [CHANGELOG.md](CHANGELOG.md) §Unreleased (983 tests, 0 failed).
+Current status: **0.3.0 shipped 2026-11-23** — builds on 0.2.0 "Presenter Edition" with
+Mirror/Extend projector-screen selection, simulated presentation mode for manual apply without
+a projector, self-contained installer and portable distributions, a real `beam` command, and
+broad reliability hardening. `Win+P` remains reserved for Windows (the default is `Win+Alt+P`).
+Releases (installer + portable zip + SHA256SUMS) are published from GitHub Actions, unsigned by
+decision (ADR-0016) — see [CHANGELOG.md](CHANGELOG.md) §0.3.0 (983 tests, 0 failed).
 Hardware verification runs are tracked in
 [docs/05-delivery/hardware-matrix.md](docs/05-delivery/hardware-matrix.md). The long-term
 goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).

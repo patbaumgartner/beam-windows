@@ -95,10 +95,10 @@ unsigned distribution via GitHub Releases (installer + portable zip + SHA256SUMS
 every build and tag) + docs + hardware matrix (D). Details in
 [CHANGELOG.md](../../CHANGELOG.md) §0.2.0 and ADRs 0016–0019.
 
-## Unreleased — post-0.2.0 (2026-11-17)
+## 0.3.0 — reliability and distribution hardening (2026-11-23)
 
-Green locally (build 0 warnings, **983 tests, 0 failed**); see
-[CHANGELOG.md](../../CHANGELOG.md) §Unreleased:
+Shipped with build 0 warnings and **983 tests, 0 failed**; see
+[CHANGELOG.md](../../CHANGELOG.md) §0.3.0:
 
 - **Mirror/Extend projector screen** — persisted `ProjectorTopology` setting (Mirror
   default; unknown/missing → Mirror), applied via `SDC_TOPOLOGY_EXTEND` + best 16:9 on the
@@ -114,6 +114,9 @@ Green locally (build 0 warnings, **983 tests, 0 failed**); see
 - **Settings saves serialized** — connect-burst races on `settings.json.tmp` (2026-11-16
   16:39:15) fixed by a lock in `SettingsStore.Save` plus a lock around the known-devices
   check-then-act in `PresentationManager`.
+- **Self-contained distributions and reliability hardening** — installer/portable packages
+  include the runtime and `beam.cmd`; recovery, restore, display detection, concurrency,
+  tray/CLI interoperation, and shutdown behavior received extensive fixes and test coverage.
 
 ## Milestones
 

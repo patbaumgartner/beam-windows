@@ -150,10 +150,10 @@ covered if any project exercised it. Current numbers (Release, 2026-11-23):
 
 | Assembly | Lines | Gate |
 |---|---|---|
-| `Beam.Core` | 656 / 728 = 90.1% | ≥ 85% |
-| `Beam.App` | 1337 / 1455 = 91.9% | ≥ 80% |
+| `Beam.Core` | 700 / 771 = 90.8% | ≥ 85% |
+| `Beam.App` | 1942 / 2078 = 93.5% | ≥ 80% |
 | `Beam.Cli` | 406 / 433 = 93.8% | ≥ 75% |
-| `Beam.Windows` | 166 / 901 = 18.4% | reported only |
+| `Beam.Windows` | 192 / 921 = 20.8% | reported only |
 | `Beam.Tray` | 259 / 1155 = 22.4% | reported only |
 
 Coverage is a regression alarm, not a target. The sequencing and failure-path tests in

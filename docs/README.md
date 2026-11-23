@@ -2,13 +2,11 @@
 
 > Plug in. Look right. Every time.
 
-**Status:** Plan accepted by the product owner. 0.1.0 tray MVP + CLI shipped; **0.2.0
-"Presenter Edition" shipped 2026-11-14** (settings & diagnostics windows, presentation
-extras, persisted settings, global hotkey, unsigned GitHub Releases distribution).
-Unreleased post-0.2.0 work (2026-11-17): Mirror/Extend projector-screen setting, simulated
-presentation mode for manual apply without a projector, `Win+P` reserved for Windows
-(default hotkey `Win+Alt+P`), and serialized settings saves. See
-[CHANGELOG.md](../CHANGELOG.md) §Unreleased — 983 tests, 0 failed.
+**Status:** Plan accepted by the product owner. **0.3.0 shipped 2026-11-23**, building on
+0.2.0 "Presenter Edition" with Mirror/Extend projector-screen selection, simulated
+presentation mode for manual apply without a projector, self-contained distributions, a real
+`beam` command, and broad reliability hardening. `Win+P` remains reserved for Windows
+(default hotkey `Win+Alt+P`). See [CHANGELOG.md](../CHANGELOG.md) §0.3.0 — 983 tests, 0 failed.
 **Author:** planning session, 2026-10-29 (refactor documented 2026-11-01)
 **Target OS:** Windows 11 (validated against 26H2, build 26300)
 **Target PowerToys:** 0.102.3001.0 (released 2026-10-27)

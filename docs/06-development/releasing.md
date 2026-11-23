@@ -1,14 +1,16 @@
 # Releasing
 
 Beam versions itself from the `Version` property in
-[`Directory.Build.props`](../../Directory.Build.props) (currently `0.2.0`). The version is
+[`Directory.Build.props`](../../Directory.Build.props) (currently `0.3.0`). The version is
 stamped into the assemblies at build time and into the installer at packaging time.
 
 ## Version scheme
 
+- `0.3.0` — Mirror/Extend projector-screen selection, simulated presentation,
+  self-contained distributions, and reliability hardening (2026-11-23). A `0.4.0` bump means
+  user-visible features; a `0.3.x` bump means bug fixes on this line.
 - `0.2.0` — **Presenter Edition** (2026-11-14): settings + diagnostics windows,
-  presentation extras, unsigned releases. A `0.3.0` bump means user-visible features; a
-  `0.2.x` bump means bug fixes on this line.
+  presentation extras, unsigned releases.
 - `0.1.1` — the patch line shipping the Nov-1 fixes (sticky cursor, decoupling).
 - The **snapshot** label is always built from the latest `main` and is *not* a version — it
   is a rolling preview so the newest fixes are one click away.
@@ -29,8 +31,8 @@ dotnet format Beam.sln --verify-no-changes
 pwsh eng/check-links.ps1
 
 # Build the installer:
-.\installer\build.ps1                    # -> artifacts\BeamSetup-0.2.0.exe
-.\installer\build.ps1 -Version 0.2.0     # version override
+.\installer\build.ps1                    # -> artifacts\BeamSetup-0.3.0.exe
+.\installer\build.ps1 -Version 0.3.0     # version override
 ```
 
 `installer\build.ps1` reads the default version from `Directory.Build.props`, publishes both
@@ -72,7 +74,7 @@ The fastest ship loop when you only changed code (no installer/registry logic):
 Beam is **not code-signed, by permanent decision** ([ADR-0016](../04-adr/ADR-0016-distribution.md)) —
 there is no signing step, no secrets, nothing to configure. The workflow:
 
-1. Resolve the version from the tag (`v0.2.0` → `0.2.0`).
+1. Resolve the version from the tag (`v0.3.0` → `0.3.0`).
 2. Publish tray + CLI with that version.
 3. Build the installer with Inno Setup (downloaded in the runner).
 4. Package `beam-<version>-portable.zip` + `SHA256SUMS.txt` (`eng/package-snapshot.ps1`).
@@ -82,8 +84,8 @@ there is no signing step, no secrets, nothing to configure. The workflow:
 So releasing is just:
 
 ```powershell
-git tag v0.2.0 # after the gates above pass locally and CI is green
-git push origin v0.2.0
+git tag v0.3.0 # after the gates above pass locally and CI is green
+git push origin v0.3.0
 ```
 
 SmartScreen will show an "unknown publisher" warning on the unsigned download —
