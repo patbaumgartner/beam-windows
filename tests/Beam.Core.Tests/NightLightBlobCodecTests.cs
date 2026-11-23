@@ -122,6 +122,23 @@ public class NightLightBlobCodecTests
     }
 
     [Fact]
+    public void Serialize_EpochAtUintMax_ThrowsInsteadOfWrappingToStaleValue()
+    {
+        NightLightBlob original = NightLightBlobCodec.Parse(RealDefaultOff) with
+        {
+            State = NightLightBlobCodec.Parse(RealDefaultOff).State with
+            {
+                PrologueEpochSeconds = uint.MaxValue,
+            },
+        };
+
+        Assert.Throws<NightLightFormatException>(() => NightLightBlobCodec.Serialize(
+            original,
+            NightLightState.On(0, 0),
+            DateTimeOffset.UnixEpoch));
+    }
+
+    [Fact]
     public void Serialize_KeepsUnknownPerDeviceSuffixBytes()
     {
         NightLightBlob original = NightLightBlobCodec.Parse(RealPerDeviceOff);

@@ -151,7 +151,13 @@ public static class NightLightBlobCodec
         ArgumentNullException.ThrowIfNull(state);
 
         uint nowEpoch = (uint)Math.Clamp(now.ToUnixTimeSeconds(), 0, uint.MaxValue);
-        uint epoch = Math.Max(nowEpoch, blob.State.PrologueEpochSeconds + 2);
+        ulong nextStoredEpoch = (ulong)blob.State.PrologueEpochSeconds + 2;
+        if (nextStoredEpoch > uint.MaxValue)
+        {
+            throw new NightLightFormatException("Stored Night Light epoch cannot be advanced without overflow.");
+        }
+
+        uint epoch = (uint)Math.Max(nowEpoch, nextStoredEpoch);
 
         long fileTime = ToFileTime(now);
 

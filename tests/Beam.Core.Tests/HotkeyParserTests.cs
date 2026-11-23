@@ -10,6 +10,7 @@ public class HotkeyParserTests
     [InlineData("win+alt+p", HotkeyModifiers.Win | HotkeyModifiers.Alt, 0x50u)]       // case-insensitive
     [InlineData("Alt+Win+P", HotkeyModifiers.Win | HotkeyModifiers.Alt, 0x50u)]       // order-independent
     [InlineData("Ctrl+Shift+F5", HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x74u)]
+    [InlineData("Ctrl+Shift+f5", HotkeyModifiers.Control | HotkeyModifiers.Shift, 0x74u)]
     [InlineData("Super+Space", HotkeyModifiers.Win, 0x20u)]
     [InlineData("Ctrl+Enter", HotkeyModifiers.Control, 0x0Du)]
     [InlineData("Alt+1", HotkeyModifiers.Alt, 0x31u)]

@@ -169,7 +169,7 @@ public static class HotkeyParser
         }
 
         // F1–F24 → 0x70–0x87.
-        if (t.StartsWith('F') && t.Length > 1
+        if (t.StartsWith("F", StringComparison.OrdinalIgnoreCase) && t.Length > 1
             && int.TryParse(t[1..], NumberStyles.None, CultureInfo.InvariantCulture, out int f)
             && f is >= 1 and <= 24)
         {

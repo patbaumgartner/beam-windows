@@ -111,8 +111,11 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   coverage fails; broken mutation baselines and stale/missing/empty reports fail instead of
   producing a false pass. Mutation child output drains concurrently, and CI actually runs 50
   mutants each for Core and App (with snapshots and stable releases gated on the result).
+- **Core parsing edges are safe.** Lowercase F-key hotkeys now work like their uppercase forms,
+  and a Night Light epoch too close to `uint.MaxValue` throws instead of wrapping into a stale
+  value Windows would reject.
 
-Test suite: **967 tests, 0 failed** (Architecture 11, Core 346, Cli 109, Windows 91, App 249,
+Test suite: **969 tests, 0 failed** (Architecture 11, Core 346, Cli 109, Windows 91, App 249,
 Tray 161) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14
