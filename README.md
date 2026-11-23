@@ -76,7 +76,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 950 xUnit tests, with the application layer driven entirely through
+- 🧪 **Tested** — 954 xUnit tests, with the application layer driven entirely through
   fake ports. Core is at ~90% line coverage and App at ~91%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
@@ -233,7 +233,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 950 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 954 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Mutation | `pwsh eng/mutation-test.ps1` | zero surviving mutants (weak tests / dead code flagged) |
@@ -252,7 +252,7 @@ zip + SHA256SUMS) published from GitHub Actions, unsigned by decision (ADR-0016)
 **Unreleased (post-0.2.0):** Mirror/Extend projector-screen setting, simulated presentation
 mode for manual apply without a projector, `Win+P` reserved for Windows (hotkey defaults to
 `Win+Alt+P` and `Win+P` is rejected), and a fix for concurrent settings saves colliding on
-`settings.json.tmp` — see [CHANGELOG.md](CHANGELOG.md) §Unreleased (950 tests, 0 failed).
+`settings.json.tmp` — see [CHANGELOG.md](CHANGELOG.md) §Unreleased (954 tests, 0 failed).
 Hardware verification runs are tracked in
 [docs/05-delivery/hardware-matrix.md](docs/05-delivery/hardware-matrix.md). The long-term
 goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).

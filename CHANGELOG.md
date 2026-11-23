@@ -99,8 +99,12 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   visible and checked so they can be unignored. Live device/safe-mode changes update the window,
   Automatic DPI can be unchecked, reset restores Auto-apply and combo state, and closed windows
   unsubscribe instead of leaking.
+- **Exit now shuts down safely.** Tray exit stops display input/timers, drains queued and running
+  operations, and best-effort restores active or paused-active presentation before disposing
+  adapters. Repeated shutdown is idempotent; failed restoration leaves the journal armed for
+  next-start recovery instead of disappearing into a half-disposed pipeline.
 
-Test suite: **950 tests, 0 failed** (Architecture 11, Core 346, Cli 96, Windows 91, App 245,
+Test suite: **954 tests, 0 failed** (Architecture 11, Core 346, Cli 96, Windows 91, App 249,
 Tray 161) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

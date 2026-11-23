@@ -311,7 +311,10 @@ internal static class Program
 
         Application.Run(context);
 
-        Log.Info("Application.Run returned — cleaning up.", "Shutdown");
+        // Stop input and finish in-flight work before the using-blocks dispose adapters.
+        // If restoration fails, ShutdownAsync leaves the recovery journal armed for next launch.
+        presentation.ShutdownAsync().GetAwaiter().GetResult();
+        Log.Info("Application.Run returned — presentation drained and cleanup complete.", "Shutdown");
     }
 
     /// <summary>A7: opens the log folder in Explorer (explicit shell launch).</summary>

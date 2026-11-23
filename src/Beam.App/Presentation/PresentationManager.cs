@@ -1876,6 +1876,61 @@ public sealed class PresentationManager : IDisposable
         return task;
     }
 
+    /// <summary>
+    /// Graceful host shutdown: stop new display input, drain all queued/running work, and
+    /// best-effort restore an owned presentation before adapters and the gate are disposed.
+    /// A failed restore remains Active with its journal intact for next-start recovery.
+    /// </summary>
+    public async Task ShutdownAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _changes.Changed -= OnDisplayChanged;
+        _changes.Stop();
+        CancelPauseTimer();
+        await DrainForShutdownAsync().ConfigureAwait(false);
+
+        if (_session.PausedFromActive)
+        {
+            _session.Resume();
+        }
+
+        if (_session.State is SessionState.Active or SessionState.Applying)
+        {
+            await RestoreNowAsync().ConfigureAwait(false);
+        }
+
+        await DrainForShutdownAsync().ConfigureAwait(false);
+    }
+
+    private async Task DrainForShutdownAsync()
+    {
+        Task operations;
+        Task displayEvents;
+        lock (_operationLock)
+        {
+            operations = _operationTail;
+        }
+
+        lock (_displayEventLock)
+        {
+            displayEvents = _displayEventTail;
+        }
+
+        try
+        {
+            await Task.WhenAll(operations, displayEvents).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            // Shutdown must continue: recovery stays journaled if a port failed.
+            Log.Exception(ex, "Shutdown", ("step", "drain"));
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed)

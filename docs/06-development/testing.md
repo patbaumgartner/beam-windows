@@ -14,7 +14,7 @@ Beam's test suite is split along the same lines as the production code. The rule
 | `tests/Beam.Tray.Tests` | `net10.0-windows` | Tray text mapping, pause/resume labels, startup command, session/journal contracts, brand-icon colours, concurrency stress, projector-screen UI |
 | `tests/Beam.Architecture.Tests` | `net10.0` | Project-reference and portability rules from [architecture.md](architecture.md), composition-root binary-name collision guard |
 
-Current totals: **950 tests** (Architecture 11, Core 346, Cli 96, Windows 91, App 245,
+Current totals: **954 tests** (Architecture 11, Core 346, Cli 96, Windows 91, App 249,
 Tray 161). Run them with:
 
 ```powershell
@@ -83,6 +83,9 @@ untrusted (driver-reported integers, registry bytes, user args) and where faults
 - **`Beam.App.Tests/SessionManagerStateMatrixTests.cs`** — from every state, every
   transition method fires: no wedged transient states, pause/resume always lands in a
   valid state, event stream carries from/to/reason.
+- **`Beam.App.Tests/ShutdownTests.cs`** — active, paused-active, and blocked in-flight
+  sessions drain and restore before disposal; repeated shutdown is idempotent and failed
+  restoration keeps the recovery journal.
 - **`Beam.App.Tests/JournalCrashSafetyTests.cs`** — corrupt/empty/truncated/`null`
   journals read as null (never throw), `Clear` removes both files, 8-thread concurrent
   writes leave a parseable file, rehydrate skips unparseable entries but restores the
