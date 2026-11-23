@@ -73,8 +73,9 @@ internal static class CliTopologies
 internal sealed class CliTopologySource : ITopologySource
 {
     public DisplayTopology Topology { get; set; } = DisplayTopology.Empty;
+    public Exception? ThrowOnQuery { get; set; }
 
-    public DisplayTopology Query() => Topology;
+    public DisplayTopology Query() => ThrowOnQuery is null ? Topology : throw ThrowOnQuery;
 }
 
 internal sealed class CliModeController : IDisplayModeController

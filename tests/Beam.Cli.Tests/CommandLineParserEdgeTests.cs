@@ -52,12 +52,10 @@ public class CommandLineParserEdgeTests
     }
 
     [Fact]
-    public void Parse_DeviceValueLookingLikeFlag_Consumed()
+    public void Parse_DeviceValueLookingLikeFlag_ReportsMissingValue()
     {
-        // "--device --json" consumes --json as the device value (documented quirk).
-        CliOptions o = P("--device", "--json");
-        Assert.Equal("--json", o.Device);
-        Assert.False(o.Json);
+        // An option token is never a device name or an excuse to hide --json from output.
+        Assert.Throws<CliUsageException>(() => P("--device", "--json"));
     }
 
     [Theory]

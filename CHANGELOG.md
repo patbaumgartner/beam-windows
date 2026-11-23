@@ -103,8 +103,12 @@ Current version is **0.2.0** (per `installer/build.ps1` default).
   operations, and best-effort restores active or paused-active presentation before disposing
   adapters. Repeated shutdown is idempotent; failed restoration leaves the journal armed for
   next-start recovery instead of disappearing into a half-disposed pipeline.
+- **CLI validation and JSON failures are consistent.** Command-specific flags/arity and Windows
+  DPI ladder values are checked before locks or hardware access. Option-looking `--device` values
+  are rejected, unsupported DPI reads return exit code 4, and parser/usage/device/unexpected
+  failures emit one structured `success:false` JSON object whenever `--json` was requested.
 
-Test suite: **954 tests, 0 failed** (Architecture 11, Core 346, Cli 96, Windows 91, App 249,
+Test suite: **967 tests, 0 failed** (Architecture 11, Core 346, Cli 109, Windows 91, App 249,
 Tray 161) — was 826 at the issue-#1 fix.
 
 ## [0.2.0] — 2026-11-14

@@ -626,14 +626,14 @@ public class CliAppTests
     }
 
     [Fact]
-    public void DpiRead_Unsupported_ReturnsFailure()
+    public void DpiRead_Unsupported_ReturnsUnsupported()
     {
         var h = new CliHarness(CliTopologies.Extended());
         h.Dpi.ReadResult = null;
 
         int code = h.Run("dpi", "read");
 
-        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(ExitCodes.Unsupported, code);
     }
 
     [Fact]
@@ -821,7 +821,7 @@ public class CliAppTests
     }
 
     [Fact]
-    public void DpiSet_WithoutPercent_AcquiresLock_ThenRejectsUsage()
+    public void DpiSet_WithoutPercent_RejectsUsageWithoutAcquiringLock()
     {
         var h = new CliHarness(CliTopologies.Extended());
         int acquires = 0;
@@ -834,7 +834,7 @@ public class CliAppTests
         int code = h.Run("dpi", "set");
 
         Assert.Equal(ExitCodes.InvalidArguments, code);
-        Assert.Equal(1, acquires);
+        Assert.Equal(0, acquires);
     }
 
     [Fact]

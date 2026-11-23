@@ -62,7 +62,7 @@ public static class CommandLineParser
                     verify = true;
                     break;
                 case "--device":
-                    if (i + 1 >= rest.Count)
+                    if (i + 1 >= rest.Count || rest[i + 1].StartsWith("--", StringComparison.Ordinal))
                     {
                         throw new CliUsageException("--device requires a value, e.g. --device \\\\.\\DISPLAY2.");
                     }

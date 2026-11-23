@@ -80,11 +80,11 @@ public sealed class CliApp
         try
         {
             options = CommandLineParser.Parse(command, args.Skip(1).ToArray());
+            ValidateCommand(command, options);
         }
         catch (CliUsageException ex)
         {
-            _error.WriteLine(ex.Message);
-            return ExitCodes.InvalidArguments;
+            return Fail(ex.Message, ExitCodes.InvalidArguments, args.Skip(1).Contains("--json", StringComparer.Ordinal));
         }
 
         // Mutating commands share a short-lived operation semaphore with the tray. The
@@ -119,22 +119,84 @@ public sealed class CliApp
                 "restore" => Restore(options),
                 "dpi" => Dpi(options),
                 "nightlight" => NightLight(options),
-                _ => InvalidCommand(command),
+                _ => InvalidCommand(command, options),
             };
         }
         catch (CliUsageException ex)
         {
-            _error.WriteLine(ex.Message);
-            return ExitCodes.InvalidArguments;
+            return Fail(ex.Message, ExitCodes.InvalidArguments, options.Json);
         }
         catch (Exception ex)
         {
-            _error.WriteLine(ex.Message);
-            return ExitCodes.Failure;
+            return Fail(ex.Message, ExitCodes.Failure, options.Json);
         }
         finally
         {
             lease?.Dispose();
+        }
+    }
+
+    /// <summary>Validates command-specific flags and arity before locks or hardware access.</summary>
+    private static void ValidateCommand(string command, CliOptions options)
+    {
+        if (options.Verify)
+        {
+            throw new CliUsageException("--verify is not supported.");
+        }
+
+        if (options.DryRun && command != "apply")
+        {
+            throw new CliUsageException("--dry-run is only valid with 'beam apply'.");
+        }
+
+        if (options.NightLight && command != "restore")
+        {
+            throw new CliUsageException("--nightlight is only valid with 'beam restore'.");
+        }
+
+        if (options.Device is not null && command != "dpi")
+        {
+            throw new CliUsageException("--device is only valid with 'beam dpi'.");
+        }
+
+        switch (command)
+        {
+            case "help" or "-h" or "--help" or "status" or "devices" or "apply" or "restore":
+                Require(options.Positionals.Count == 0, $"{command} does not accept positional arguments.");
+                break;
+            case "nightlight":
+                Require(options.Positionals.Count == 1
+                    && (options.Positionals[0].ToLowerInvariant() is "on" or "off"),
+                    "Usage: beam nightlight <on|off> [--json]");
+                break;
+            case "dpi":
+                Require(options.Positionals.Count > 0, "Usage: beam dpi <read|set> [<percent>] [--device <gdi>] [--json]");
+                string action = options.Positionals[0].ToLowerInvariant();
+                if (action == "read")
+                {
+                    Require(options.Positionals.Count == 1, "Usage: beam dpi read [--device <gdi>] [--json]");
+                }
+                else if (action == "set")
+                {
+                    Require(options.Positionals.Count == 2, "Usage: beam dpi set <percent> [--device <gdi>] [--json]");
+                    Require(int.TryParse(options.Positionals[1], out int percent)
+                        && DpiScaleLadder.IndexOf(percent) >= 0,
+                        "DPI percent must be a supported Windows scale: " + string.Join(", ", DpiScaleLadder.Values));
+                }
+                else
+                {
+                    throw new CliUsageException("Unknown dpi action: " + options.Positionals[0]);
+                }
+
+                break;
+        }
+    }
+
+    private static void Require(bool condition, string message)
+    {
+        if (!condition)
+        {
+            throw new CliUsageException(message);
         }
     }
 
@@ -472,10 +534,11 @@ public sealed class CliApp
 
         if (path is null)
         {
-            _error.WriteLine(options.Device is null
+            return Fail(options.Device is null
                 ? "No active display found."
-                : $"No active display matching '--device {options.Device}'.");
-            return ExitCodes.Failure;
+                : $"No active display matching '--device {options.Device}'.",
+                ExitCodes.Failure,
+                options.Json);
         }
 
         if (action == "read")
@@ -483,8 +546,7 @@ public sealed class CliApp
             DpiScale? scale = _dpi.Read(path);
             if (scale?.Value is null)
             {
-                _error.WriteLine("Could not read DPI.");
-                return ExitCodes.Failure;
+                return Fail("Could not read DPI.", ExitCodes.Unsupported, options.Json);
             }
 
             if (options.Json)
@@ -549,11 +611,29 @@ public sealed class CliApp
         return result.Success ? ExitCodes.Success : ExitCodes.Failure;
     }
 
-    private int InvalidCommand(string command)
+    private int InvalidCommand(string command, CliOptions options)
     {
-        _error.WriteLine($"Unknown command: {command}");
-        _error.WriteLine("Run 'beam help' for usage.");
-        return ExitCodes.InvalidArguments;
+        int code = Fail($"Unknown command: {command}", ExitCodes.InvalidArguments, options.Json);
+        if (!options.Json)
+        {
+            _error.WriteLine("Run 'beam help' for usage.");
+        }
+
+        return code;
+    }
+
+    private int Fail(string message, int code, bool json)
+    {
+        if (json)
+        {
+            WriteJson(new { version = Version, success = false, error = message });
+        }
+        else
+        {
+            _error.WriteLine(message);
+        }
+
+        return code;
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────
@@ -674,8 +754,8 @@ public sealed class CliApp
         _out.WriteLine("  beam devices [--json]");
         _out.WriteLine("  beam apply [--dry-run] [--json]");
         _out.WriteLine("  beam restore [--nightlight] [--json]");
-        _out.WriteLine("  beam dpi read [--json]");
-        _out.WriteLine("  beam dpi set <percent> [--json]");
+        _out.WriteLine("  beam dpi read [--device <gdi>] [--json]");
+        _out.WriteLine("  beam dpi set <percent> [--device <gdi>] [--json]");
         _out.WriteLine("  beam nightlight <on|off> [--json]");
         _out.WriteLine();
         _out.WriteLine("Exit codes: 0 success, 1 failure, 2 bad arguments, 3 no projector, 4 unsupported.");
