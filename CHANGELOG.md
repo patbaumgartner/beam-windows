@@ -8,6 +8,13 @@ Current version is **0.3.0** (per `installer/build.ps1` default).
 
 ## [Unreleased]
 
+### Fixed
+- **Stabilized `Capture_AlwaysThrows_NeverRaisesChanged_KeepsPolling` under CI load** — the test
+  asserted more than three 10 ms poll ticks inside a fixed 150 ms window; Windows' ~15.6 ms
+  timer resolution and a busy runner delivered only two ticks on the `v0.3.0` Debug leg.
+  It now waits for the polling condition with a bounded deadline and reads the counters
+  with `Interlocked`/`Volatile`, so a genuinely dead loop still fails.
+
 ## [0.3.0] — 2026-11-23
 
 ### Added

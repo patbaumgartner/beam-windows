@@ -70,19 +70,28 @@ public class DisplayMonitorResilienceTests
         int calls = 0;
         ConnectionSnapshot Capture()
         {
-            calls++;
+            Interlocked.Increment(ref calls);
             throw new InvalidOperationException("permanent failure");
         }
 
         using var monitor = new DisplayMonitor(Capture, TimeSpan.FromMilliseconds(10));
-        bool raised = false;
-        monitor.Changed += (_, _) => raised = true;
+        int raised = 0;
+        monitor.Changed += (_, _) => Interlocked.Exchange(ref raised, 1);
 
         monitor.Start();
-        await Task.Delay(150);
 
-        Assert.False(raised);
-        Assert.True(calls > 3, $"loop should keep polling, calls={calls}");
+        // A fixed 150 ms wait is not a reliable cadence bar: Windows' ~15.6 ms timer
+        // resolution and a loaded CI runner can deliver only a couple of ticks. Wait for
+        // the condition with a generous deadline instead — a dead loop still fails.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (Volatile.Read(ref calls) <= 3 && DateTime.UtcNow < deadline)
+        {
+            await Task.Delay(10);
+        }
+
+        int observed = Volatile.Read(ref calls);
+        Assert.True(observed > 3, $"loop should keep polling, calls={observed}");
+        Assert.Equal(0, Volatile.Read(ref raised));
 
         monitor.Stop();
     }
