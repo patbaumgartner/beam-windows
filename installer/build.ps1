@@ -1,7 +1,7 @@
 # Builds the Beam installer locally.
 #
 #   .\installer\build.ps1            # publish + compile installer to .\artifacts
-#   .\installer\build.ps1 -Version 0.3.0 -OutputDir C:\temp\out
+#   .\installer\build.ps1 -Version 0.3.1 -OutputDir C:\temp\out
 #
 # Requires: .NET 10 SDK (see global.json) and Inno Setup 6.3+.
 

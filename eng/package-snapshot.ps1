@@ -3,7 +3,7 @@
 # releases) and by local snapshot builds.
 #
 #   .\eng\package-snapshot.ps1                          # version from Directory.Build.props, -> .\artifacts
-#   .\eng\package-snapshot.ps1 -Version 0.3.0 -OutputDir .\artifacts
+#   .\eng\package-snapshot.ps1 -Version 0.3.1 -OutputDir .\artifacts
 
 [CmdletBinding()]
 param(

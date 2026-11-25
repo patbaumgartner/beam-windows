@@ -5,7 +5,7 @@
 | Version | Supported |
 |---|---|
 | 0.3.x (latest release / `snapshot` build) | ✅ |
-| 0.2.x | ❌ — upgrade to 0.3.0 |
+| 0.2.x | ❌ — upgrade to 0.3.x (latest: 0.3.1) |
 | 0.1.x | ❌ |
 | older | ❌ |
 
@@ -48,7 +48,7 @@ crash mid-apply is recovered from the journal on next start (UC-11).
   GitHub Actions workflows (`.github/workflows/ci.yml`, `.github/workflows/release.yml`)
   and uploaded to GitHub Releases over HTTPS: `BeamSetup-<version>.exe`,
   `beam-<version>-portable.zip`, `SHA256SUMS.txt`.
-- Integrity check for users: `Get-FileHash BeamSetup-0.3.0.exe -Algorithm SHA256` and
+- Integrity check for users: `Get-FileHash BeamSetup-0.3.1.exe -Algorithm SHA256` and
   compare with `SHA256SUMS.txt` on the release page.
 
 ## Reporting a vulnerability

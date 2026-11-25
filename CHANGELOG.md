@@ -4,9 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Current version is **0.3.0** (per `installer/build.ps1` default).
+Current version is **0.3.1** (per `installer/build.ps1` default).
 
 ## [Unreleased]
+
+## [0.3.1] — 2026-11-25
+
+### Changed
+- **Maintenance release of the 0.3.0 code line** — refreshed installer, portable ZIP and
+  `SHA256SUMS.txt` under a new tag so the published artifacts match the current sources.
+  No product changes since 0.3.0; see §0.3.0 for the feature and fix list.
 
 ### Fixed
 - **Stabilized `Capture_AlwaysThrows_NeverRaisesChanged_KeepsPolling` under CI load** — the test
