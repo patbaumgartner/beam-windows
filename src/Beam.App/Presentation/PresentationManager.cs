@@ -69,6 +69,8 @@ public sealed class PresentationManager : IDisposable
     private Task _operationTail = Task.CompletedTask;
     private IReadOnlyList<NightLightSnapshot>? _nightLightSnapshot;
     private IReadOnlyList<JournalDpiEntry>? _dpiSnapshot;
+    private IReadOnlyList<DisplayModeSnapshot>? _recoveryModes;
+    private IReadOnlyList<DisplayModeSnapshot>? _recoveryAppliedModes;
     private bool _modeChangeAttempted;
     private bool _dpiChangeAttempted;
     private bool _nightLightChangeAttempted;
@@ -77,6 +79,7 @@ public sealed class PresentationManager : IDisposable
     private readonly object _displayEventLock = new();
     private Task _displayEventTail = Task.CompletedTask;
     private DateTimeOffset _lastOwnMutationUtc = DateTimeOffset.MinValue;
+    private bool _disconnectDuringApply;
     private int _consecutiveFailures;
     private bool _disposed;
 
@@ -85,6 +88,7 @@ public sealed class PresentationManager : IDisposable
     private volatile IReadOnlyCollection<string> _ignoredDisplays = Array.Empty<string>();
     private DisplayTopology _lastTopology = DisplayTopology.Empty;
     private volatile IReadOnlyList<DisplayPath> _currentExternalPaths = Array.Empty<DisplayPath>();
+    private volatile IReadOnlyCollection<string> _presentingTargetIdentities = Array.Empty<string>();
 
     // B3 presentation extras. The ports are optional: when absent (e.g. a headless CLI
     // composition root) the corresponding extra is skipped entirely.
@@ -92,6 +96,7 @@ public sealed class PresentationManager : IDisposable
     private readonly IDndController? _dnd;
     private readonly IAudioController? _audio;
     private JournalExtras? _extras;
+    private string? _appliedAudioEndpoint;
 
     // B6 live status: published on every session state change so `beam status` can
     // report what the tray is doing. Optional; absent in the CLI composition root.
@@ -836,9 +841,20 @@ public sealed class PresentationManager : IDisposable
             return;
         }
 
-        bool displayDisconnected = previous is not null && currCount < prevCount;
+        bool presentationDisconnected = IsPresentationDisconnect(previous, current, prevCount, currCount);
 
-        if (state == SessionState.Active && displayDisconnected)
+        if (presentationDisconnected && state is SessionState.Detecting or SessionState.Applying)
+        {
+            // The mode call may still be in flight. Remember the disconnect so the apply
+            // cannot finish as Active with Night Light/DPI/extras left on and no projector.
+            Volatile.Write(ref _disconnectDuringApply, true);
+            Log.Info("External display disconnected while applying — restore will follow the in-flight apply.", "Monitor",
+                ("previousDisplays", prevCount),
+                ("currentDisplays", currCount));
+            return;
+        }
+
+        if (state == SessionState.Active && presentationDisconnected)
         {
             if (!_restoreOnDisconnect)
             {
@@ -956,7 +972,7 @@ public sealed class PresentationManager : IDisposable
         if (_session.State == SessionState.Active
             && _restoreOnDisconnect
             && !_simulatedPresentation
-            && QueryTopology().ExternalPaths.Count == 0)
+            && PresentingTargetsMissing(QueryTopology()))
         {
             // The disconnect event was deliberately ignored while paused. Do not require a
             // second physical event to restore the user's settings on manual/timed resume.
@@ -1053,9 +1069,13 @@ public sealed class PresentationManager : IDisposable
         // put both back exactly (roadmap 1.9: DPI restore from the crash journal).
         _nightLightSnapshot = JournalStore.RehydrateNightLight(journal);
         _dpiSnapshot = JournalStore.RehydrateDpi(journal);
+        _recoveryModes = journal.Modes;
+        _recoveryAppliedModes = journal.AppliedModes;
+        _appliedDpiPercent = journal.AppliedDpiPercent;
+        _appliedAudioEndpoint = journal.AppliedAudioEndpoint;
         // Legacy journals have no per-step phase information. Preserve their established
-        // recovery behavior; normal in-process restores use the more precise attempted flags.
-        _modeChangeAttempted = true;
+        // recovery behavior; current journals restore mode only if mutation actually began.
+        _modeChangeAttempted = journal.ModeChangeAttempted ?? true;
         _dpiChangeAttempted = _dpiSnapshot is { Count: > 0 };
         _nightLightChangeAttempted = _nightLightSnapshot is { Count: > 0 };
 
@@ -1086,6 +1106,11 @@ public sealed class PresentationManager : IDisposable
         _dpiChangeAttempted = false;
         _nightLightChangeAttempted = false;
         _simulatedPresentation = false;
+        _presentingTargetIdentities = Array.Empty<string>();
+        _recoveryModes = null;
+        _recoveryAppliedModes = null;
+        _appliedAudioEndpoint = null;
+        Volatile.Write(ref _disconnectDuringApply, false);
         try
         {
             // Step 1: Night Light OFF (policy-gated: UseNightLight).
@@ -1116,9 +1141,15 @@ public sealed class PresentationManager : IDisposable
             // Persist intent before any mutation: if Beam is killed later in the sequence,
             // the next launch sees an active journal and can recover. Without a durable
             // journal, changing the machine would be unsafe, so abort before the first write.
+            if (UseMode)
+            {
+                _mode.Prepare();
+            }
+
             try
             {
-                _journal.BeginApply("fix-sequence-started", _nightLightSnapshot, _dpiSnapshot, _extras);
+                _journal.BeginApply(
+                    "fix-sequence-started", _nightLightSnapshot, _dpiSnapshot, _extras, _mode.OriginalModes);
             }
             catch (Exception ex)
             {
@@ -1128,6 +1159,7 @@ public sealed class PresentationManager : IDisposable
                 _nightLightSnapshot = null;
                 _dpiSnapshot = null;
                 _extras = null;
+                _mode.Abort();
                 _session.RequestRestore();
                 _session.MarkIdle();
                 return;
@@ -1153,7 +1185,11 @@ public sealed class PresentationManager : IDisposable
             if (UseMode)
             {
                 DisplayTopology beforeMode = QueryTopology();
-                if (manual && beforeMode.ActivePaths.Count < 2)
+                _presentingTargetIdentities = beforeMode.ExternalPaths
+                    .Select(path => path.Target.Identity)
+                    .Where(identity => !string.IsNullOrEmpty(identity))
+                    .ToArray();
+                if (manual && beforeMode.ExternalPaths.Count == 0)
                 {
                     // Manual "Apply projector mode" with no external display connected:
                     // a clone/extend has nothing to mirror onto and would fail, and the
@@ -1175,10 +1211,12 @@ public sealed class PresentationManager : IDisposable
                         "Fix", ("step", "displayMode"), ("projectorTopology", _projectorTopology.ToString()));
                     LogTopology("Topology before mode change", "Fix", beforeMode);
 
+                    _journal.MarkModeChangeAttempted();
                     _modeChangeAttempted = true;
                     modeError = extend
                         ? _mode.ApplyExtendWith16x9(_preferNativeMode) // C1: prefer-native policy
                         : _mode.ApplyCloneWith16x9(_preferNativeMode);
+                    _journal.MarkApplied(modes: _mode.AppliedModes);
                     MarkOwnMutation();
 
                     // UC-12 rule 4: verify after the mode mutation — the trigger must be gone.
@@ -1190,7 +1228,7 @@ public sealed class PresentationManager : IDisposable
                     DisplayTopology afterMode = QueryTopology();
                     if (modeError is null)
                     {
-                        (modeError, afterMode) = await VerifyTriggerClearedAsync(afterMode).ConfigureAwait(false);
+                        (modeError, afterMode) = await VerifyPresentationModeAsync(afterMode, manual).ConfigureAwait(false);
                     }
 
                     LogTopology("Topology after mode change", "Fix", afterMode, modeError);
@@ -1237,6 +1275,14 @@ public sealed class PresentationManager : IDisposable
             // a failure here must never fail the session.
             ApplyExtras();
 
+            if (Volatile.Read(ref _disconnectDuringApply))
+            {
+                Log.Warn("Projector disconnected during apply — restoring instead of becoming Active.", "Fix");
+                _session.RequestRestore();
+                await RestoreSequenceAsync().ConfigureAwait(false);
+                return;
+            }
+
             _session.MarkActive();
             NoteSuccess("fix sequence complete");
             overall.Stop();
@@ -1256,26 +1302,32 @@ public sealed class PresentationManager : IDisposable
     }
 
     /// <summary>
-    /// UC-12 rule 4 verify (issue #1): returns null when the trigger is gone from
-    /// <paramref name="first"/> or becomes gone within the bounded settle window,
-    /// otherwise the verify-failed error. Each re-query goes through
-    /// <see cref="QueryTopology"/>, so the external-paths cache stays fresh too.
+    /// UC-12 rule 4 verify (issue #1): the owned source must reach 16:9 within the bounded
+    /// settle window. Automatic apply must also clear its trigger; manual Apply is an
+    /// explicit 16:9 override and may intentionally present on a same-aspect projector.
+    /// Each re-query goes through <see cref="QueryTopology"/>, keeping the device cache fresh.
     /// </summary>
-    private async Task<(string? Error, DisplayTopology Topology)> VerifyTriggerClearedAsync(DisplayTopology first)
+    private async Task<(string? Error, DisplayTopology Topology)> VerifyPresentationModeAsync(
+        DisplayTopology first,
+        bool manual)
     {
-        const string verifyError = "verify-after-mode failed: mirror aspect mismatch still present after apply";
+        string verifyError = manual
+            ? "verify-after-mode failed: 16:9 presentation source was not established"
+            : "verify-after-mode failed: mirror aspect mismatch still present after apply";
 
         DisplayTopology topology = first;
         for (int attempt = 1; ; attempt++)
         {
-            if (!TriggerCondition.IsMet(topology, _ignoredDisplays))
+            bool sourceIs16x9 = SelectPresentationSource(topology)?.SourceMode is { } source
+                && AspectRatio.Classify(source) == AspectKind.SixteenNine;
+            if (sourceIs16x9 && (manual || !TriggerCondition.IsMet(topology, EffectiveIgnoredIdentities())))
             {
                 return (null, topology);
             }
 
             if (attempt >= _verifyMaxAttempts)
             {
-                Log.Warn("Verify-after-mode: trigger still met after the settle window — verify failed", "Fix",
+                Log.Warn("Verify-after-mode: presentation conditions still unmet after the settle window — verify failed", "Fix",
                     ("attempts", attempt.ToString()),
                     ("maxAttempts", _verifyMaxAttempts.ToString()),
                     ("pollMs", _verifySettleInterval.TotalMilliseconds.ToString()));
@@ -1284,7 +1336,7 @@ public sealed class PresentationManager : IDisposable
 
             if (attempt == 1)
             {
-                Log.Info("Verify-after-mode: trigger still met right after apply — polling for the OS to settle", "Fix",
+                Log.Info("Verify-after-mode: presentation conditions still unmet right after apply — polling for the OS to settle", "Fix",
                     ("maxAttempts", _verifyMaxAttempts.ToString()),
                     ("pollMs", _verifySettleInterval.TotalMilliseconds.ToString()));
             }
@@ -1354,6 +1406,7 @@ public sealed class PresentationManager : IDisposable
             }
 
             _dpiChangeAttempted = true;
+            _journal.MarkApplied(dpiPercent: targetPercent);
             bool applied = _dpi.SetPercentageAndVerify(sharedSource, targetPercent, scale.Value);
             if (applied)
             {
@@ -1392,7 +1445,9 @@ public sealed class PresentationManager : IDisposable
             {
                 Log.Info("Restore Step 1: Display mode", "Restore", ("step", "displayMode"));
                 LogTopology("Topology before restore", "Restore", QueryTopology());
-                modeError = _mode.Restore();
+                modeError = _recoveryModes is not null
+                    ? _mode.Restore(_recoveryModes, _recoveryAppliedModes ?? Array.Empty<DisplayModeSnapshot>())
+                    : _mode.Restore();
                 LogTopology("Topology after restore", "Restore", QueryTopology(), modeError);
             }
             else
@@ -1452,11 +1507,16 @@ public sealed class PresentationManager : IDisposable
             _journal.Clear();
             _nightLightSnapshot = null;
             _dpiSnapshot = null;
+            _recoveryModes = null;
+            _recoveryAppliedModes = null;
             _modeChangeAttempted = false;
             _dpiChangeAttempted = false;
             _nightLightChangeAttempted = false;
             _simulatedPresentation = false;
+            _presentingTargetIdentities = Array.Empty<string>();
+            Volatile.Write(ref _disconnectDuringApply, false);
             _extras = null;
+            _appliedAudioEndpoint = null;
             _appliedSourceMode = null;
             _appliedDpiPercent = null;
             _nightLightDisabled = null;
@@ -1521,6 +1581,35 @@ public sealed class PresentationManager : IDisposable
         return topology;
     }
 
+    private bool IsPresentationDisconnect(
+        ConnectionSnapshot? previous,
+        ConnectionSnapshot current,
+        int previousCount,
+        int currentCount)
+    {
+        IReadOnlyCollection<string> identities = _presentingTargetIdentities;
+        if (previous is not null && identities.Count > 0)
+        {
+            bool ownedTargetWasPresent = previous.Displays.Any(display =>
+                display.TargetIdentity is string identity && identities.Contains(identity));
+            if (ownedTargetWasPresent)
+            {
+                return !current.Displays.Any(display =>
+                    display.TargetIdentity is string identity && identities.Contains(identity));
+            }
+        }
+
+        return previous is not null && currentCount < previousCount;
+    }
+
+    private bool PresentingTargetsMissing(DisplayTopology topology)
+    {
+        IReadOnlyCollection<string> identities = _presentingTargetIdentities;
+        return identities.Count > 0
+            ? identities.Any(identity => topology.ActivePaths.All(path => path.Target.Identity != identity))
+            : topology.ExternalPaths.Count == 0;
+    }
+
     /// <summary>
     /// Selects the source whose mode/DPI Beam owns. Extend has independent desktops, so the
     /// external projector must be used rather than the first (usually internal) active path.
@@ -1577,7 +1666,7 @@ public sealed class PresentationManager : IDisposable
         {
             try
             {
-                DisplayPath? path = QueryTopology().Paths.FirstOrDefault(p =>
+                DisplayPath? path = QueryTopology().ActivePaths.FirstOrDefault(p =>
                     p.AdapterId == entry.AdapterId && p.SourceId == entry.SourceId);
                 if (path is null)
                 {
@@ -1589,6 +1678,14 @@ public sealed class PresentationManager : IDisposable
                 }
 
                 DpiScale? scale = _dpi.Read(path);
+                if (_appliedDpiPercent is int applied && scale?.Value is { } current && current.Current != applied)
+                {
+                    Log.Info("DPI restore skipped: user changed the scale after Beam applied it", "Restore",
+                        ("step", "dpi"), ("appliedPercent", applied.ToString()),
+                        ("currentPercent", current.Current.ToString()));
+                    continue;
+                }
+
                 bool ok = _dpi.SetPercentageAndVerify(path, entry.Percent, scale?.Value);
                 allRestored &= ok;
                 Log.Info("DPI restored", "Restore",
@@ -1694,11 +1791,17 @@ public sealed class PresentationManager : IDisposable
             }
         }
 
-        if (_audioToHdmi && _audio is not null)
+        if (_audioToHdmi && _audio is not null && _extras?.PreviousAudioEndpoint is not null)
         {
             try
             {
                 string? switched = _audio.SwitchToHdmi();
+                _appliedAudioEndpoint = switched;
+                if (switched is not null)
+                {
+                    _journal.MarkApplied(audioEndpoint: switched);
+                }
+
                 Log.Info(switched is null
                         ? "Extra skipped: no HDMI/projector audio endpoint found"
                         : "Extra applied: default audio switched to the HDMI endpoint",
@@ -1736,14 +1839,21 @@ public sealed class PresentationManager : IDisposable
             }
         }
 
-        if (_dnd is not null && _extras?.ToastsWereEnabled is bool wasEnabled)
+        if (_dnd is not null && _extras?.ToastsWereEnabled is true)
         {
             try
             {
-                bool ok = _dnd.SetToastsEnabled(wasEnabled);
-                Log.Info("Extra restored: toast notifications setting restored", "Restore",
-                    ("step", "extras"), ("extra", "dnd"),
-                    ("enabled", wasEnabled.ToString()), ("verified", ok.ToString()));
+                if (_dnd.SnapshotToastsEnabled() == false)
+                {
+                    bool ok = _dnd.SetToastsEnabled(true);
+                    Log.Info("Extra restored: toast notifications setting restored", "Restore",
+                        ("step", "extras"), ("extra", "dnd"), ("verified", ok.ToString()));
+                }
+                else
+                {
+                    Log.Info("Extra restore skipped: notifications were changed after Beam applied DND", "Restore",
+                        ("step", "extras"), ("extra", "dnd"));
+                }
             }
             catch (Exception ex)
             {
@@ -1756,10 +1866,18 @@ public sealed class PresentationManager : IDisposable
         {
             try
             {
-                bool ok = _audio.Restore(previous);
-                Log.Info("Extra restored: default audio endpoint restored", "Restore",
-                    ("step", "extras"), ("extra", "audio"),
-                    ("endpoint", previous), ("stillExists", ok.ToString()));
+                if (_appliedAudioEndpoint is null || _audio.GetDefaultRenderEndpoint() == _appliedAudioEndpoint)
+                {
+                    bool ok = _audio.Restore(previous);
+                    Log.Info("Extra restored: default audio endpoint restored", "Restore",
+                        ("step", "extras"), ("extra", "audio"),
+                        ("endpoint", previous), ("stillExists", ok.ToString()));
+                }
+                else
+                {
+                    Log.Info("Extra restore skipped: user changed the default audio endpoint after Beam applied it", "Restore",
+                        ("step", "extras"), ("extra", "audio"));
+                }
             }
             catch (Exception ex)
             {

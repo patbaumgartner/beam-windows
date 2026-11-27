@@ -218,6 +218,12 @@ public sealed class NightLightController : INightLightController
                 continue;
             }
 
+            if (!ShouldRestore(current.State))
+            {
+                details.Add($"{Short(snapshot.KeyPath)}: skipped (state changed after Beam applied it)");
+                continue;
+            }
+
             try
             {
                 // Keep the current epoch as the floor so the write is accepted, but
@@ -259,6 +265,10 @@ public sealed class NightLightController : INightLightController
             allSucceeded ? "Night Light restored." : "Night Light restore partially failed.",
             details);
     }
+
+    /// <summary>True only while the current value still has Beam's manual-off state.</summary>
+    internal static bool ShouldRestore(NightLightState current) =>
+        !current.Active && current.TransitionCause == NightLightTransitionCause.Manual;
 
     private static string Short(string keyPath)
     {

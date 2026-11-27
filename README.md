@@ -76,7 +76,7 @@ job — detect → fix → roll back. That gap is why Beam exists (full rational
   `beam dpi`, `beam nightlight` with `--json` and documented exit codes — for scripts and
   power users.
 - 🔒 **No admin** — per-user install and runtime; never elevates.
-- 🧪 **Tested** — 983 xUnit tests, with the application layer driven entirely through
+- 🧪 **Tested** — 1017 xUnit tests, with the application layer driven entirely through
   fake ports. Core is at ~91% line coverage and App at ~94%; see
   [test-strategy.md](docs/05-delivery/test-strategy.md) and
   [docs/06-development/testing.md](docs/06-development/testing.md).
@@ -150,6 +150,11 @@ from the extracted folder. Uninstall removes only Beam's own PATH entry.
 (The tray/hotkey "Apply projector mode now" simulates presentation mode when no projector is
 connected, but `beam apply` keeps its script-friendly contract and still exits `3` — scripts
 can rely on it.)
+
+While the tray is running it owns presentation mutations: direct `beam apply` / `beam restore`
+are refused with a clear error; use the tray's Apply/Undo actions instead. Read-only commands,
+`dpi`, and `nightlight` remain available. Standalone CLI apply/restore includes bounded
+verification, rollback, and persisted recovery snapshots.
 
 ```powershell
 beam status --json
@@ -233,7 +238,7 @@ Every pull request runs the same gates locally and in CI:
 |---|---|---|
 | Build | `dotnet build Beam.sln -c Release` | zero warnings (warnings are errors) |
 | Formatting | `dotnet format Beam.sln --verify-no-changes` | clean |
-| Tests | `dotnet test Beam.sln -c Release` | 983 pass, no hardware required |
+| Tests | `dotnet test Beam.sln -c Release` | 1017 pass, no hardware required |
 | Architecture | `Beam.Architecture.Tests` | project-reference rules and no UI/P/Invoke in portable layers |
 | Coverage | `pwsh eng/coverage.ps1 -NoTest -Enforce` | Core ≥ 85%, App ≥ 80%, CLI ≥ 75% |
 | Mutation | `pwsh eng/mutation-test.ps1 -MaxMutants 50` | zero surviving mutants; broken/missing baselines fail closed |
@@ -251,7 +256,7 @@ Mirror/Extend projector-screen selection, simulated presentation mode for manual
 a projector, self-contained installer and portable distributions, a real `beam` command, and
 broad reliability hardening. `Win+P` remains reserved for Windows (the default is `Win+Alt+P`).
 Releases (installer + portable zip + SHA256SUMS) are published from GitHub Actions, unsigned by
-decision (ADR-0016) — see [CHANGELOG.md](CHANGELOG.md) §0.3.1 (983 tests, 0 failed).
+decision (ADR-0016) — see [CHANGELOG.md](CHANGELOG.md) §0.3.1 (1017 tests, 0 failed).
 Hardware verification runs are tracked in
 [docs/05-delivery/hardware-matrix.md](docs/05-delivery/hardware-matrix.md). The long-term
 goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).

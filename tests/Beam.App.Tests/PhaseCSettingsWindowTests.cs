@@ -235,6 +235,33 @@ public class PhaseCSettingsWindowTests
     }
 
     [Fact]
+    public async Task Verification_IgnoresDeviceWithAutoApplyDisabled()
+    {
+        const string other = @"monitor\Other";
+        var before = new DisplayTopology(new[]
+        {
+            Topologies.Path(0, 1, "Laptop", true, true, 3840, 2400, 3840, 2400),
+            Topologies.Path(1, 2, "DELL", false, true, 3840, 2400, 3840, 2160),
+            Topologies.Path(2, 3, "Other", false, true, 3840, 2400, 3840, 2400),
+        }, DisplayTopologyId.Clone);
+        using var h = new PresentationHarness(before, ScaleAt200,
+            verifySettleInterval: TimeSpan.FromMilliseconds(1), verifyMaxAttempts: 3);
+        h.Manager.RefreshExternalPaths();
+        h.Manager.SetDeviceAutoApply(other, autoApply: false);
+        h.Mode.OnApply = () => h.Topology.Topology = new DisplayTopology(new[]
+        {
+            Topologies.Path(0, 1, "Laptop", true, true, 1920, 1080, 3840, 2400),
+            Topologies.Path(1, 2, "DELL", false, true, 1920, 1080, 1920, 1080),
+            Topologies.Path(2, 3, "Other", false, true, 1920, 1080, 1920, 1200),
+        }, DisplayTopologyId.Clone);
+
+        await h.Manager.CheckCurrentStateAsync();
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(0, h.Mode.RestoreCalls);
+    }
+
+    [Fact]
     public void ForgetDevice_RemovesItFromKnownList()
     {
         var store = new FakeSettingsStore();

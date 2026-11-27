@@ -194,13 +194,13 @@ public class DisplayModelTests
     }
 
     [Fact]
-    public void DisplayTopology_IsMirrored_FalseWhenUnknownIdAndSeparateSources()
+    public void DisplayTopology_IsMirrored_FalseWhenUnknownIdAndSeparateDesktops()
     {
         var topology = new DisplayTopology(
             new[]
             {
                 Path(0, 1, isInternal: true, active: true),
-                Path(1, 2, isInternal: false, active: true),
+                Path(1, 2, isInternal: false, active: true) with { DesktopX = 1920 },
             },
             0);
 

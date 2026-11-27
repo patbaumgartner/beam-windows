@@ -34,6 +34,7 @@ public sealed class CliApp
     // B6: reads the tray's live status file (status.json). Null in tests that do not
     // exercise the session block; the composition root passes StatusFile.TryRead.
     private readonly Func<StatusFileRecord?>? _statusReader;
+    private readonly Func<int, bool>? _statusProcessAlive;
 
     public CliApp(
         ITopologySource topology,
@@ -44,7 +45,8 @@ public sealed class CliApp
         TextWriter? output = null,
         TextWriter? error = null,
         Func<IDisposable?>? lockFactory = null,
-        Func<StatusFileRecord?>? statusReader = null)
+        Func<StatusFileRecord?>? statusReader = null,
+        Func<int, bool>? statusProcessAlive = null)
     {
         _topology = topology ?? throw new ArgumentNullException(nameof(topology));
         _mode = mode ?? throw new ArgumentNullException(nameof(mode));
@@ -57,6 +59,7 @@ public sealed class CliApp
         // parallel test runs never contend on the production named semaphore.
         _lockFactory = lockFactory;
         _statusReader = statusReader;
+        _statusProcessAlive = statusProcessAlive;
     }
 
     /// <summary>The CLI reports the product version from the assembly metadata.</summary>
@@ -248,15 +251,7 @@ public sealed class CliApp
         bool needsFix = TriggerCondition.IsMet(topology);
 
         // B6: merge the running tray's live status (status.json) when present.
-        StatusFileRecord? session = null;
-        try
-        {
-            session = _statusReader?.Invoke();
-        }
-        catch
-        {
-            session = null; // an unreadable status file must not break `beam status`
-        }
+        StatusFileRecord? session = LiveTrayStatus();
 
         var displays = topology.ActivePaths.Select(p => new
         {
@@ -322,6 +317,21 @@ public sealed class CliApp
         return ExitCodes.Success;
     }
 
+    private StatusFileRecord? LiveTrayStatus()
+    {
+        try
+        {
+            StatusFileRecord? session = _statusReader?.Invoke();
+            return session is not null && _statusProcessAlive?.Invoke(session.Pid) == false
+                ? null
+                : session;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private int Devices(CliOptions options)
     {
         DisplayTopology topology = _topology.Query();
@@ -370,6 +380,14 @@ public sealed class CliApp
 
     private int Apply(CliOptions options)
     {
+        if (!options.DryRun && LiveTrayStatus() is not null)
+        {
+            return Fail(
+                "The Beam tray owns presentation changes while it is running. Use Apply in the tray or stop the tray and retry.",
+                ExitCodes.Failure,
+                options.Json);
+        }
+
         DisplayTopology before = _topology.Query();
         if (!TriggerCondition.IsMet(before))
         {
@@ -419,9 +437,10 @@ public sealed class CliApp
 
         IReadOnlyList<NightLightSnapshot> snapshots = _nightLight.SnapshotAll();
         IReadOnlyList<JournalDpiEntry>? dpiEntries = CaptureDpiEntries();
+        _mode.Prepare();
         try
         {
-            _journal.BeginApply("cli-apply", snapshots, dpiEntries);
+            _journal.BeginApply("cli-apply", snapshots, dpiEntries, modes: _mode.OriginalModes);
         }
         catch (Exception ex)
         {
@@ -439,11 +458,36 @@ public sealed class CliApp
             return ExitCodes.Failure;
         }
 
-        NightLightWriteResult nightLight = _nightLight.SetActive(false);
-        string? modeError = _mode.ApplyCloneWith16x9();
-        string dpiMessage = ApplyOptimalDpi();
+        NightLightWriteResult nightLight;
+        string? modeError;
+        string dpiMessage;
+        bool dpiAttempted = false;
+        try
+        {
+            nightLight = _nightLight.SetActive(false);
+            _journal.MarkModeChangeAttempted();
+            modeError = _mode.ApplyCloneWith16x9();
+            _journal.MarkApplied(modes: _mode.AppliedModes);
+            if (modeError is null)
+            {
+                modeError = VerifyAppliedTopology();
+            }
+
+            dpiAttempted = modeError is null;
+            dpiMessage = dpiAttempted ? ApplyOptimalDpi() : "skipped (display mode failed)";
+        }
+        catch
+        {
+            _ = RollbackFailedApply(snapshots, dpiEntries, dpiAttempted);
+            throw;
+        }
 
         bool success = modeError is null && nightLight.Success;
+        if (!success)
+        {
+            string? rollbackError = RollbackFailedApply(snapshots, dpiEntries, dpiAttempted);
+            modeError ??= rollbackError;
+        }
 
         if (options.Json)
         {
@@ -468,8 +512,72 @@ public sealed class CliApp
         return success ? ExitCodes.Success : ExitCodes.Failure;
     }
 
+    private string? VerifyAppliedTopology()
+    {
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            DisplayTopology topology = _topology.Query();
+            bool sourceIs16x9 = topology.ActivePaths.Any(path => path.SourceMode is { } source
+                && AspectRatio.Classify(source) == AspectKind.SixteenNine);
+            if (topology.IsMirrored && sourceIs16x9 && !TriggerCondition.IsMet(topology))
+            {
+                return null;
+            }
+
+            if (attempt < 19)
+            {
+                Thread.Sleep(100);
+            }
+        }
+
+        return "verify-after-apply failed: no settled 16:9 mirror without an aspect mismatch";
+    }
+
+    private string? RollbackFailedApply(
+        IReadOnlyList<NightLightSnapshot> snapshots,
+        IReadOnlyList<JournalDpiEntry>? dpiEntries,
+        bool restoreDpi)
+    {
+        var errors = new List<string>();
+        if (_mode.HasModeChanged && _mode.Restore() is { } modeError)
+        {
+            errors.Add(modeError);
+        }
+
+        NightLightWriteResult nightLight = _nightLight.Restore(snapshots);
+        if (!nightLight.Success)
+        {
+            errors.Add(nightLight.Message);
+        }
+
+        if (restoreDpi)
+        {
+            (bool dpiSuccess, string dpiMessage) = RestoreDpi(dpiEntries);
+            if (!dpiSuccess)
+            {
+                errors.Add(dpiMessage);
+            }
+        }
+
+        if (errors.Count == 0)
+        {
+            _journal.Clear();
+            return null;
+        }
+
+        return "Rollback incomplete: " + string.Join(" | ", errors);
+    }
+
     private int Restore(CliOptions options)
     {
+        if (LiveTrayStatus() is not null)
+        {
+            return Fail(
+                "The Beam tray owns presentation changes while it is running. Use Undo in the tray or stop the tray and retry.",
+                ExitCodes.Failure,
+                options.Json);
+        }
+
         JournalRecord? journal = _journal.Read();
         IReadOnlyList<NightLightSnapshot>? snapshots = JournalStore.RehydrateNightLight(journal);
         IReadOnlyList<JournalDpiEntry>? dpiEntries = JournalStore.RehydrateDpi(journal);
@@ -488,8 +596,12 @@ public sealed class CliApp
             nightLight = new NightLightWriteResult(true, "Night Light left unchanged.", Array.Empty<string>());
         }
 
-        string? modeError = _mode.Restore();
-        (bool dpiSuccess, string dpiMessage) = RestoreDpi(dpiEntries);
+        string? modeError = journal?.IsActive == true && (journal.ModeChangeAttempted ?? true)
+            ? journal.Modes is not null
+                ? _mode.Restore(journal.Modes, journal.AppliedModes ?? Array.Empty<DisplayModeSnapshot>())
+                : _mode.Restore()
+            : null;
+        (bool dpiSuccess, string dpiMessage) = RestoreDpi(dpiEntries, journal?.AppliedDpiPercent);
         bool success = modeError is null && nightLight.Success && dpiSuccess;
         if (success)
         {
@@ -680,7 +792,9 @@ public sealed class CliApp
     }
 
     /// <summary>Roadmap 1.9: restores the original DPI scales persisted in the journal.</summary>
-    private (bool Success, string Message) RestoreDpi(IReadOnlyList<JournalDpiEntry>? entries)
+    private (bool Success, string Message) RestoreDpi(
+        IReadOnlyList<JournalDpiEntry>? entries,
+        int? appliedPercent = null)
     {
         if (entries is not { Count: > 0 })
         {
@@ -689,7 +803,7 @@ public sealed class CliApp
 
         foreach (JournalDpiEntry entry in entries)
         {
-            DisplayPath? path = _topology.Query().Paths.FirstOrDefault(p =>
+            DisplayPath? path = _topology.Query().ActivePaths.FirstOrDefault(p =>
                 p.AdapterId == entry.AdapterId && p.SourceId == entry.SourceId);
             if (path is null)
             {
@@ -697,6 +811,11 @@ public sealed class CliApp
             }
 
             DpiScale? scale = _dpi.Read(path);
+            if (appliedPercent is int applied && scale?.Value is { } current && current.Current != applied)
+            {
+                continue; // user changed the scale after Beam applied it
+            }
+
             if (!_dpi.SetPercentageAndVerify(path, entry.Percent, scale?.Value))
             {
                 return (false, $"restore to {entry.Percent}% NOT verified");
@@ -729,6 +848,7 @@ public sealed class CliApp
                 return $"already at {target}%";
             }
 
+            _journal.MarkApplied(dpiPercent: target);
             return _dpi.SetPercentageAndVerify(sharedSource, target, scale.Value)
                 ? $"set to {target}% (verified)"
                 : $"set to {target}% NOT verified";

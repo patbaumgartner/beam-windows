@@ -71,15 +71,29 @@ public class TopologyPropertyTests
     }
 
     [Fact]
-    public void IsMirrored_IdZero_TwoDistinctSources_NoCloneGroup()
+    public void IsMirrored_IdZero_SeparateDesktops_NoCloneGroup()
     {
         var paths = new List<DisplayPath>
         {
             P(0, 1, true, 1920, 1080, 1920, 1080),
-            P(1, 2, false, 1920, 1080, 1920, 1080),
+            P(1, 2, false, 1920, 1080, 1920, 1080, x: 1920),
         };
         var t = new DisplayTopology(paths, 0u);
-        Assert.False(t.IsMirrored, "two single-path sources under id-0 fallback are not a clone");
+        Assert.False(t.IsMirrored, "separate desktops under id-0 fallback are not a clone");
+    }
+
+    [Fact]
+    public void IsMirrored_IdZero_SharedDesktopWithDistinctSources_IsMirrored()
+    {
+        var paths = new[]
+        {
+            P(0, 1, true, 3840, 2400, 3840, 2400),
+            P(1, 2, false, 3840, 2400, 3840, 2160),
+        };
+        var topology = new DisplayTopology(paths, 0u);
+
+        Assert.True(topology.IsMirrored);
+        Assert.True(TriggerCondition.IsMet(topology));
     }
 
     [Theory]

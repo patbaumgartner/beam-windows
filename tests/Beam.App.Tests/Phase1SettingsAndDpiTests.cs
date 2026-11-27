@@ -58,6 +58,54 @@ public class Phase1SettingsAndDpiTests
     }
 
     [Fact]
+    public async Task RestoreNow_InactiveDpiSource_SkipsWriteAndCompletes()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredNeedScale(), ScaleAt200);
+        await h.Manager.ApplyNowAsync();
+        h.Dpi.RequestedPercents.Clear();
+        DisplayPath stale = Topologies.Path(0, 1, "Laptop", isInternal: true, active: false,
+            1920, 1080, 1920, 1080);
+        h.Topology.Topology = new DisplayTopology(new[] { stale }, DisplayTopologyId.Internal);
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Empty(h.Dpi.RequestedPercents);
+        Assert.Equal(1, h.Journal.ClearCalls);
+    }
+
+    [Fact]
+    public async Task RestoreNow_UserChangedDpiAfterApply_PreservesUserChoice()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredNeedScale(), ScaleAt200);
+        await h.Manager.ApplyNowAsync();
+        h.Dpi.RequestedPercents.Clear();
+        h.Dpi.ReadResult = DpiScale.From(-4, -2, 4); // user selected 150% after Beam chose 100%
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Empty(h.Dpi.RequestedPercents);
+    }
+
+    [Fact]
+    public async Task TryRecover_UserChangedDpiAfterCrash_PreservesUserChoice()
+    {
+        using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
+        h.Dpi.ReadResult = DpiScale.From(-4, -2, 4); // user selected 150% after Beam chose 100%
+        h.Journal.Record = new JournalRecord(
+            true, "fix-sequence-started", DateTimeOffset.Now.ToString("o"), null,
+            new[] { new JournalDpiEntry("0001594D:00000000", 0, 200) },
+            AppliedDpiPercent: 100,
+            ModeChangeAttempted: false);
+
+        await h.Manager.TryRecoverAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Empty(h.Dpi.RequestedPercents);
+    }
+
+    [Fact]
     public async Task TryRecover_WithDpiJournal_RestoresCapturedDpi()
     {
         using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);

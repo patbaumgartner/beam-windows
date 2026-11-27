@@ -41,7 +41,7 @@ public sealed record NightLightBlob(NightLightState State, byte[] Suffix);
 ///   00
 ///   [10 00]        if active
 ///   [D0 0A 02]     if the transition was manual
-///   C6 14 &lt;FILETIME VLQ&gt;
+///   C6 14 &lt;FILETIME VLQ&gt;  (omitted by some off/schedule default values)
 ///   &lt;suffix&gt;       (default: 00 00 00 00, per-device: 01 00 00 00 00)
 /// </code>
 /// <para>All VLQs are little-endian 7-bit groups with the high bit as continuation.</para>
@@ -97,8 +97,8 @@ public static class NightLightBlobCodec
         bool active = reader.TryConsume(ActiveMarker);
         bool manual = reader.TryConsume(ManualMarker);
 
-        reader.Expect(FileTimeMarker, "FILETIME marker");
-        ulong fileTime = reader.ReadVlq();
+        bool hasFileTime = reader.TryConsume(FileTimeMarker);
+        ulong fileTime = hasFileTime ? reader.ReadVlq() : 0;
         if (fileTime > long.MaxValue)
         {
             throw new NightLightFormatException("FILETIME does not fit in int64.");
@@ -120,6 +120,14 @@ public static class NightLightBlobCodec
 
         byte[] suffix = bytes.Slice(reader.Position, suffixLength).ToArray();
         reader.Advance(suffixLength);
+
+        bool validTimestamplessState = !active
+            && !manual
+            && suffix is [0, 0, 0, 0] or [1, 0, 0, 0, 0];
+        if (!hasFileTime && !validTimestamplessState)
+        {
+            throw new NightLightFormatException("FILETIME marker is missing from an unrecognised state layout.");
+        }
 
         if (reader.Position != bytes.Length)
         {

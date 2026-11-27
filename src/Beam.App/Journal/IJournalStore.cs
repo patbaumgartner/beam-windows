@@ -1,3 +1,4 @@
+using Beam.Core.Display;
 using Beam.Core.NightLight;
 
 namespace Beam.App.Journal;
@@ -36,10 +37,15 @@ public sealed record JournalRecord(
     IReadOnlyList<JournalEntry>? NightLight,
     IReadOnlyList<JournalDpiEntry>? Dpi = null,
     int Version = JournalRecord.CurrentVersion,
-    JournalExtras? Extras = null)
+    JournalExtras? Extras = null,
+    IReadOnlyList<DisplayModeSnapshot>? Modes = null,
+    bool? ModeChangeAttempted = null,
+    IReadOnlyList<DisplayModeSnapshot>? AppliedModes = null,
+    int? AppliedDpiPercent = null,
+    string? AppliedAudioEndpoint = null)
 {
     /// <summary>Schema version written by this build. Bump on any breaking change.</summary>
-    public const int CurrentVersion = 1;
+    public const int CurrentVersion = 2;
 }
 
 /// <summary>
@@ -57,7 +63,17 @@ public interface IJournalStore
         string reason,
         IReadOnlyList<NightLightSnapshot>? nightLight,
         IReadOnlyList<JournalDpiEntry>? dpi = null,
-        JournalExtras? extras = null);
+        JournalExtras? extras = null,
+        IReadOnlyList<DisplayModeSnapshot>? modes = null);
+
+    /// <summary>Records that display-mode mutation is about to begin.</summary>
+    void MarkModeChangeAttempted();
+
+    /// <summary>Records verified applied values used to avoid overwriting later user changes.</summary>
+    void MarkApplied(
+        IReadOnlyList<DisplayModeSnapshot>? modes = null,
+        int? dpiPercent = null,
+        string? audioEndpoint = null);
 
     /// <summary>Reads the journal, or null when none exists or it cannot be parsed.</summary>
     JournalRecord? Read();

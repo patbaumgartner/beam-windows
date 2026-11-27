@@ -33,6 +33,15 @@ public class NightLightBlobCodecTests
         0x01, 0x00, 0x00, 0x00, 0x00,
     ];
 
+    /// <summary>Real default value captured on Windows 11 26H2 with no FILETIME field.</summary>
+    private static readonly byte[] RealDefaultOffWithoutFileTime =
+    [
+        0x43, 0x42, 0x01, 0x00, 0x0A, 0x02, 0x01, 0x00, 0x2A, 0x06,
+        0xD9, 0xB3, 0x9F, 0xD8, 0x06,
+        0x2A, 0x2B, 0x0E, 0x05, 0x43, 0x42, 0x01,
+        0x00, 0x00, 0x00, 0x00, 0x00,
+    ];
+
     [Fact]
     public void Parse_RealDefaultOff_ReadsSemanticState()
     {
@@ -52,6 +61,27 @@ public class NightLightBlobCodecTests
 
         Assert.False(blob.State.Active);
         Assert.Equal(new byte[] { 0x01, 0x00, 0x00, 0x00, 0x00 }, blob.Suffix);
+    }
+
+    [Fact]
+    public void Parse_RealDefaultOffWithoutFileTime_ReadsStateAndCanTurnOn()
+    {
+        NightLightBlob blob = NightLightBlobCodec.Parse(RealDefaultOffWithoutFileTime);
+
+        Assert.False(blob.State.Active);
+        Assert.Equal(NightLightTransitionCause.Schedule, blob.State.TransitionCause);
+        Assert.Equal(0L, blob.State.ModifiedFileTime);
+        Assert.Equal(new byte[] { 0x00, 0x00, 0x00, 0x00 }, blob.Suffix);
+
+        byte[] on = NightLightBlobCodec.Serialize(
+            blob,
+            NightLightState.On(0, 0),
+            new DateTimeOffset(2026, 11, 26, 12, 0, 0, TimeSpan.Zero));
+        NightLightBlob result = NightLightBlobCodec.Parse(on);
+
+        Assert.True(result.State.Active);
+        Assert.Equal(NightLightTransitionCause.Manual, result.State.TransitionCause);
+        Assert.Equal(blob.Suffix, result.Suffix);
     }
 
     [Fact]

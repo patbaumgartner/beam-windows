@@ -179,6 +179,22 @@ public class CliAppTests
     }
 
     [Fact]
+    public void Status_Json_SessionIsNull_WhenRecordedTrayProcessIsNotLive()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.StatusReader = () => new StatusFileRecord(
+            "Active", "fix sequence complete", "2026-11-14T10:00:00+00:00", 4321,
+            "1920x1080@60", 100, true);
+        h.StatusProcessAlive = _ => false;
+
+        int code = h.Run("status", "--json");
+
+        Assert.Equal(ExitCodes.Success, code);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("session").ValueKind);
+    }
+
+    [Fact]
     public void Status_Json_SessionIsNull_WhenNoTrayRunning()
     {
         var h = new CliHarness(CliTopologies.Mirrored());
@@ -404,6 +420,90 @@ public class CliAppTests
         int code = h.Run("apply");
 
         Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(1, h.Mode.RestoreCalls);
+        Assert.Equal(1, h.NightLight.RestoreCalls);
+        Assert.Equal(1, h.Journal.ClearCalls);
+        Assert.Empty(h.Dpi.RequestedPercents);
+    }
+
+    [Fact]
+    public void Apply_ModelessFirstSharedSource_DoesNotFalseFailVerification()
+    {
+        var after = new DisplayTopology(new[]
+        {
+            CliTopologies.Path(0, 1, "Ghost", isInternal: false, 1920, 1080, 1920, 1080, withModes: false),
+            CliTopologies.Path(1, 2, "DELL", isInternal: false, 1920, 1080, 1920, 1080),
+            CliTopologies.Path(2, 3, "Laptop", isInternal: true, 1920, 1080, 3840, 2400),
+        }, DisplayTopologyId.Clone);
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.Mode.OnApply = () => h.Topology.Topology = after;
+
+        int code = h.Run("apply");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(0, h.Mode.RestoreCalls);
+    }
+
+    [Fact]
+    public void Apply_ExtendAfterReportedClone_ReturnsFailureAndRollsBack()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.Mode.OnApply = () => h.Topology.Topology = CliTopologies.Extended();
+
+        int code = h.Run("apply");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(1, h.Mode.RestoreCalls);
+    }
+
+    [Fact]
+    public void Apply_ReportedSuccessButTopologyUnchanged_ReturnsFailureAndRollsBack()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.Mode.OnApply = () => { };
+
+        int code = h.Run("apply", "--json");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(1, h.Mode.RestoreCalls);
+        Assert.Equal(1, h.NightLight.RestoreCalls);
+        Assert.Equal(1, h.Journal.ClearCalls);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.False(doc.RootElement.GetProperty("success").GetBoolean());
+        Assert.Contains("verify", doc.RootElement.GetProperty("modeError").GetString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(h.Dpi.RequestedPercents);
+    }
+
+    [Fact]
+    public void Apply_LiveTray_RefusesToSplitPresentationOwnership()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.StatusReader = () => new StatusFileRecord("Idle", null, "2026-11-26T10:00:00+00:00", 4321);
+        h.StatusProcessAlive = _ => true;
+
+        int code = h.Run("apply", "--json");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Journal.BeginCalls);
+        using JsonDocument doc = JsonDocument.Parse(h.Output);
+        Assert.Contains("tray", doc.RootElement.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Restore_LiveTray_RefusesToSplitPresentationOwnership()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.StatusReader = () => new StatusFileRecord("Active", null, "2026-11-26T10:00:00+00:00", 4321);
+        h.StatusProcessAlive = _ => true;
+        h.Journal.Record = new JournalRecord(true, "fix-sequence-started", "2026-11-26T10:00:00+00:00", null);
+
+        int code = h.Run("restore", "--json");
+
+        Assert.Equal(ExitCodes.Failure, code);
+        Assert.Equal(0, h.Mode.RestoreCalls);
+        Assert.Equal(0, h.NightLight.RestoreCalls);
+        Assert.Equal(0, h.Journal.ClearCalls);
     }
 
     [Fact]
@@ -450,7 +550,20 @@ public class CliAppTests
 
         Assert.Equal(ExitCodes.Success, code);
         Assert.Equal(0, h.NightLight.SetActiveCalls);
+        Assert.Equal(0, h.Mode.RestoreCalls);
         Assert.Contains("left unchanged", h.Output);
+    }
+
+    [Fact]
+    public void Restore_InactiveJournal_DoesNotChangeTopology()
+    {
+        var h = new CliHarness(CliTopologies.Mirrored());
+        h.Journal.Record = new JournalRecord(false, "old", "2026-01-01T00:00:00+00:00", null);
+
+        int code = h.Run("restore");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(0, h.Mode.RestoreCalls);
     }
 
     [Fact]
@@ -539,6 +652,22 @@ public class CliAppTests
         JournalDpiEntry entry = Assert.Single(h.Journal.LastDpi!);
         Assert.Equal(200, entry.Percent);
         Assert.Equal("0001594D:00000000", entry.AdapterId);
+    }
+
+    [Fact]
+    public void Restore_ModeJournal_RehydratesOriginalSnapshots()
+    {
+        var h = new CliHarness(CliTopologies.Extended());
+        var modes = new[] { new DisplayModeSnapshot(@"\\.\DISPLAY1", 3840, 2400, 60) };
+        h.Journal.Record = new JournalRecord(true, "cli-apply", "2026-11-22T12:00:00+00:00", null,
+            Modes: modes, ModeChangeAttempted: true, AppliedModes: modes);
+
+        int code = h.Run("restore");
+
+        Assert.Equal(ExitCodes.Success, code);
+        Assert.Equal(modes, h.Mode.LastRestoredSnapshots);
+        Assert.Equal(modes, h.Mode.LastAppliedRestoredSnapshots);
+        Assert.Equal(1, h.Journal.ClearCalls);
     }
 
     [Fact]

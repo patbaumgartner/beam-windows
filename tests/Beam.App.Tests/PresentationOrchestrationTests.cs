@@ -76,6 +76,20 @@ public class PresentationOrchestrationTests
     }
 
     [Fact]
+    public async Task ApplyNow_ExternalOnly_UsesRealDisplayModeInsteadOfSimulation()
+    {
+        using var h = new PresentationHarness(Topologies.ExternalOnly(), ScaleAt200);
+        h.Manager.ProjectorTopology = PresentationTopology.Extend;
+        h.Mode.OnApply = () => h.Topology.Topology = Topologies.ExternalOnlyFixed16x9();
+
+        await h.Manager.ApplyNowAsync();
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(1, h.Mode.ExtendCalls);
+        Assert.Equal(0, h.Mode.ApplyCalls);
+    }
+
+    [Fact]
     public async Task ApplyNow_WhilePaused_ResumesFirst()
     {
         using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
@@ -101,6 +115,19 @@ public class PresentationOrchestrationTests
         Assert.Equal(1, h.Mode.ApplyCalls);
         Assert.Equal(1, h.Mode.RestoreCalls);
         Assert.False(h.Manager.IsSafeMode);
+    }
+
+    [Fact]
+    public async Task ApplyNow_JournalWriteFailure_DiscardsPreparedModeSnapshots()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        h.Journal.ThrowOnBegin = true;
+
+        await h.Manager.ApplyNowAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(1, h.Mode.AbortCalls);
+        Assert.Empty(h.Mode.OriginalModes);
     }
 
     [Fact]
@@ -212,6 +239,44 @@ public class PresentationOrchestrationTests
         Assert.Equal(1, h.Mode.RestoreCalls);
         Assert.Equal(1, h.NightLight.RestoreCalls);
         Assert.Single(h.NightLight.LastRestored!);
+        Assert.Equal(1, h.Journal.ClearCalls);
+    }
+
+    [Fact]
+    public async Task TryRecover_JournalBeforeModeMutation_DoesNotChangeTopology()
+    {
+        using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
+        h.Journal.Record = new JournalRecord(
+            true, "fix-sequence-started", DateTimeOffset.Now.ToString("o"), null,
+            ModeChangeAttempted: false);
+
+        await h.Manager.TryRecoverAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(0, h.Mode.RestoreCalls);
+        Assert.Equal(1, h.Journal.ClearCalls);
+    }
+
+    [Fact]
+    public async Task TryRecover_ModeMutation_RehydratesOriginalModeSnapshots()
+    {
+        using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
+        var modes = new[]
+        {
+            new DisplayModeSnapshot(@"\\.\DISPLAY1", 3840, 2400, 60),
+            new DisplayModeSnapshot(@"\\.\DISPLAY2", 1920, 1080, 60),
+        };
+        h.Journal.Record = new JournalRecord(
+            true, "fix-sequence-started", DateTimeOffset.Now.ToString("o"), null,
+            Modes: modes, ModeChangeAttempted: true,
+            AppliedModes: new[] { new DisplayModeSnapshot(@"\\.\DISPLAY1", 1920, 1080, 60) });
+
+        await h.Manager.TryRecoverAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(modes, h.Mode.LastRestoredSnapshots);
+        Assert.Equal(new[] { new DisplayModeSnapshot(@"\\.\DISPLAY1", 1920, 1080, 60) },
+            h.Mode.LastAppliedRestoredSnapshots);
         Assert.Equal(1, h.Journal.ClearCalls);
     }
 

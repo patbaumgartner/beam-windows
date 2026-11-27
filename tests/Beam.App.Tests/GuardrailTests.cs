@@ -49,6 +49,25 @@ public class GuardrailTests
     }
 
     [Fact]
+    public async Task VerifyAfterMode_ManualOverride_SucceedsWhenSourceIs16x9ButTriggerRemains()
+    {
+        using var h = new PresentationHarness(
+            Topologies.Extended(),
+            ScaleAt200,
+            verifySettleInterval: TimeSpan.FromMilliseconds(1),
+            verifyMaxAttempts: 5);
+        h.Mode.OnApply = () => h.Topology.Topology = Topologies.MirroredNeedScale();
+
+        await h.Manager.ApplyNowAsync();
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(1, h.Mode.ApplyCalls);
+        Assert.Equal(0, h.Mode.RestoreCalls);
+        Assert.True(TriggerCondition.IsMet(h.Topology.Topology));
+        Assert.Equal("1920x1080@60", h.Manager.CurrentStatus.AppliedSourceMode);
+    }
+
+    [Fact]
     public async Task VerifyAfterMode_StaleReadsThenSettles_SucceedsWithoutUnwind()
     {
         using var h = new PresentationHarness(
@@ -197,6 +216,67 @@ public class GuardrailTests
         Assert.Equal(SessionState.Active, h.Session.State);
         Assert.Equal(2, h.Mode.ApplyCalls);
     }
+
+    [Fact]
+    public async Task DisconnectWhileApplying_DoesNotCompleteAsActiveWithoutProjector()
+    {
+        using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
+        var applyStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseApply = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        h.Mode.OnApply = () =>
+        {
+            h.Topology.Topology = Topologies.CloneFixed16x9();
+            applyStarted.SetResult();
+            releaseApply.Task.GetAwaiter().GetResult();
+        };
+
+        Task apply = h.Manager.ApplyNowAsync();
+        await applyStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        h.Topology.Topology = Topologies.InternalOnly();
+        h.Changes.Raise(Topologies.Snapshot(2), Topologies.Snapshot(1));
+        releaseApply.SetResult();
+        await apply.WaitAsync(TimeSpan.FromSeconds(5));
+        await h.Manager.PendingTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(1, h.Mode.RestoreCalls);
+    }
+
+    [Fact]
+    public async Task Disconnect_SameCountProjectorReplacement_StillRestores()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        await h.Manager.ApplyNowAsync();
+
+        h.Changes.Raise(
+            SnapshotWithIdentities("laptop", @"monitor\DELL"),
+            SnapshotWithIdentities("laptop", @"monitor\OTHER"));
+        await h.Manager.PendingTask;
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Equal(1, h.Mode.RestoreCalls);
+    }
+
+    [Fact]
+    public async Task Disconnect_UnrelatedDisplayRemoved_DoesNotRestoreOwnedProjector()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        await h.Manager.ApplyNowAsync();
+
+        h.Changes.Raise(
+            SnapshotWithIdentities("laptop", @"monitor\DELL", @"monitor\OTHER"),
+            SnapshotWithIdentities("laptop", @"monitor\DELL"));
+        await h.Manager.PendingTask;
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(0, h.Mode.RestoreCalls);
+    }
+
+    private static ConnectionSnapshot SnapshotWithIdentities(params string[] identities) =>
+        new(identities.Select((identity, index) => new DisplaySnapshot(
+                new DisplayId("ADAPTER", (uint)index), 1920, 1080, 100, identity,
+                (uint)index, identity)).ToArray(),
+            DateTimeOffset.UtcNow);
 
     [Fact]
     public async Task DisconnectRestore_WithinSelfChangeWindow_StillRestores()

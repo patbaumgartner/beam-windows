@@ -20,6 +20,64 @@ public sealed class DisplayModeController : IDisplayModeController
 
     private readonly ITopologySource _inventory = new DisplayInventory();
     private readonly List<DevModeSnapshot> _snapshots = new();
+    private readonly Dictionary<string, DevModeSnapshot> _appliedModes = new(StringComparer.OrdinalIgnoreCase);
+    private bool _hasModeChanged;
+
+    /// <inheritdoc />
+    public bool HasModeChanged => _hasModeChanged;
+
+    /// <inheritdoc />
+    public IReadOnlyList<DisplayModeSnapshot> OriginalModes => _snapshots
+        .Select(snapshot => new DisplayModeSnapshot(
+            snapshot.GdiName, snapshot.Width, snapshot.Height, snapshot.Frequency))
+        .ToArray();
+
+    /// <inheritdoc />
+    public void Abort()
+    {
+        _snapshots.Clear();
+        _appliedModes.Clear();
+        _hasModeChanged = false;
+    }
+
+    /// <inheritdoc />
+    public IReadOnlyList<DisplayModeSnapshot> AppliedModes => _appliedModes.Values
+        .Select(snapshot => new DisplayModeSnapshot(
+            snapshot.GdiName, snapshot.Width, snapshot.Height, snapshot.Frequency))
+        .ToArray();
+
+    /// <inheritdoc />
+    public void Prepare()
+    {
+        if (_snapshots.Count == 0)
+        {
+            CaptureSnapshots();
+        }
+    }
+
+    /// <inheritdoc />
+    public string? Restore(IReadOnlyList<DisplayModeSnapshot> snapshots) =>
+        Restore(snapshots, Array.Empty<DisplayModeSnapshot>());
+
+    /// <inheritdoc />
+    public string? Restore(
+        IReadOnlyList<DisplayModeSnapshot> snapshots,
+        IReadOnlyList<DisplayModeSnapshot> appliedModes)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        ArgumentNullException.ThrowIfNull(appliedModes);
+        _snapshots.Clear();
+        _snapshots.AddRange(snapshots.Select(snapshot => new DevModeSnapshot(
+            snapshot.GdiName, snapshot.Width, snapshot.Height, snapshot.Frequency)));
+        _appliedModes.Clear();
+        foreach (DisplayModeSnapshot snapshot in appliedModes)
+        {
+            _appliedModes[snapshot.GdiName] = new DevModeSnapshot(
+                snapshot.GdiName, snapshot.Width, snapshot.Height, snapshot.Frequency);
+        }
+
+        return Restore();
+    }
 
     /// <summary>A snapshot of one display's DEVMODE before Beam changed it.</summary>
     internal sealed record DevModeSnapshot(string GdiName, uint Width, uint Height, uint Frequency);
@@ -30,9 +88,11 @@ public sealed class DisplayModeController : IDisplayModeController
     public string? ApplyCloneWith16x9(bool preferNative = true)
     {
         var sw = Stopwatch.StartNew();
+        _hasModeChanged = false;
+        _appliedModes.Clear();
 
         // Capture the current DEVMODE for every active display before changing anything.
-        CaptureSnapshots();
+        Prepare();
         Log.Info("Snapshots captured before clone", "DisplayMode",
             ("count", _snapshots.Count),
             ("snapshots", string.Join(" | ", _snapshots.Select(s => $"{s.GdiName}={s.Width}x{s.Height}@{s.Frequency}Hz"))));
@@ -48,6 +108,7 @@ public sealed class DisplayModeController : IDisplayModeController
             return $"SetDisplayConfig(TOPOLOGY_CLONE) failed: Win32 error {err}.";
         }
 
+        _hasModeChanged = true;
         Log.Info("Clone topology applied, waiting for OS to settle", "DisplayMode",
             ("win32Error", err.ToString()),
             ("settleMs", 1500.ToString()));
@@ -85,6 +146,10 @@ public sealed class DisplayModeController : IDisplayModeController
         // 3) Find the best 16:9 mode the shared source supports. Native 16:9 first
         // (C1 policy toggle); then highest pixels, 60 Hz first, 30 Hz fallback.
         string? modeError = TrySet16x9(gdi, nativeMode, preferNative);
+        if (modeError is null)
+        {
+            CaptureAppliedModes();
+        }
 
         sw.Stop();
         Log.Info("ApplyCloneWith16x9 complete", "DisplayMode",
@@ -104,10 +169,12 @@ public sealed class DisplayModeController : IDisplayModeController
     public string? ApplyExtendWith16x9(bool preferNative = true)
     {
         var sw = Stopwatch.StartNew();
+        _hasModeChanged = false;
+        _appliedModes.Clear();
 
         // Capture the current DEVMODE for every active display before changing anything,
         // so Restore() can put each source back exactly.
-        CaptureSnapshots();
+        Prepare();
         Log.Info("Snapshots captured before extend", "DisplayMode",
             ("count", _snapshots.Count),
             ("snapshots", string.Join(" | ", _snapshots.Select(s => $"{s.GdiName}={s.Width}x{s.Height}@{s.Frequency}Hz"))));
@@ -123,6 +190,7 @@ public sealed class DisplayModeController : IDisplayModeController
             return $"SetDisplayConfig(TOPOLOGY_EXTEND) failed: Win32 error {err}.";
         }
 
+        _hasModeChanged = true;
         Log.Info("Extend topology applied, waiting for OS to settle", "DisplayMode",
             ("win32Error", err.ToString()),
             ("settleMs", 1500.ToString()));
@@ -157,6 +225,10 @@ public sealed class DisplayModeController : IDisplayModeController
             ("topology", topology.ToString()));
 
         string? modeError = TrySet16x9(gdi, nativeMode, preferNative);
+        if (modeError is null)
+        {
+            CaptureAppliedModes();
+        }
 
         sw.Stop();
         Log.Info("ApplyExtendWith16x9 complete", "DisplayMode",
@@ -330,6 +402,22 @@ public sealed class DisplayModeController : IDisplayModeController
 
         Log.Info("Restore: returning to the OS's default topology", "DisplayMode");
 
+        List<DevModeSnapshot> candidates = _snapshots.Where(snapshot =>
+        {
+            _appliedModes.TryGetValue(snapshot.GdiName, out DevModeSnapshot? applied);
+            DevModeSnapshot? current = ReadCurrentSnapshot(snapshot.GdiName);
+            bool shouldRestore = ShouldRestoreMode(applied, current);
+            if (!shouldRestore)
+            {
+                Log.Info("Skipping DEVMODE restore: user changed the mode after Beam applied it", "DisplayMode",
+                    ("gdiName", snapshot.GdiName),
+                    ("appliedMode", $"{applied!.Width}x{applied.Height}@{applied.Frequency}Hz"),
+                    ("currentMode", $"{current!.Width}x{current.Height}@{current.Frequency}Hz"));
+            }
+
+            return shouldRestore;
+        }).ToList();
+
         // With a single active display, EXTEND is rejected by the OS (Win32 error 31);
         // the correct topology for one display is INTERNAL. Pick the flag from the
         // live path count instead of assuming two displays.
@@ -350,12 +438,23 @@ public sealed class DisplayModeController : IDisplayModeController
             ("settleMs", 1500.ToString()));
         Thread.Sleep(1500);
 
-        Log.Info("Restoring captured DEVMODE snapshots", "DisplayMode",
-            ("snapshotCount", _snapshots.Count));
+        DisplayTopology current = _inventory.Query();
+        List<DevModeSnapshot> connected = SnapshotsForActiveDisplays(candidates, current).ToList();
+        foreach (DevModeSnapshot disconnected in candidates.Except(connected))
+        {
+            Log.Info("Skipping DEVMODE restore for disconnected display", "DisplayMode",
+                ("gdiName", disconnected.GdiName),
+                ("targetMode", $"{disconnected.Width}x{disconnected.Height}@{disconnected.Frequency}Hz"));
+        }
 
-        // Restore each captured DEVMODE. Keep only failures so a manager-level retry
-        // cannot lose their inverse or report the whole topology as restored.
-        List<DevModeSnapshot> failed = RestoreSnapshots(_snapshots, RestoreDevMode).ToList();
+        Log.Info("Restoring captured DEVMODE snapshots", "DisplayMode",
+            ("snapshotCount", connected.Count),
+            ("disconnectedCount", (candidates.Count - connected.Count).ToString()));
+
+        // Restore every connected DEVMODE. A disconnected target cannot accept a write
+        // and must not keep the whole session/journal stuck in a permanent retry loop.
+        // Keep only real write failures so a manager-level retry cannot lose their inverse.
+        List<DevModeSnapshot> failed = RestoreSnapshots(connected, RestoreDevMode).ToList();
         _snapshots.Clear();
         _snapshots.AddRange(failed);
         sw.Stop();
@@ -368,9 +467,48 @@ public sealed class DisplayModeController : IDisplayModeController
             return $"Could not restore the original display mode for: {displays}.";
         }
 
+        _hasModeChanged = false;
+        _appliedModes.Clear();
         Log.Info("Restore complete", "DisplayMode",
             ("elapsedMs", sw.ElapsedMilliseconds.ToString()));
         return null;
+    }
+
+    /// <summary>True when restore metadata is absent or the live mode is still Beam's applied mode.</summary>
+    internal static bool ShouldRestoreMode(DevModeSnapshot? applied, DevModeSnapshot? current) =>
+        applied is null || current is null || applied == current;
+
+    private static DevModeSnapshot? ReadCurrentSnapshot(string gdiName)
+    {
+        DEVMODE? current = DisplayInventory.GetCurrentDevMode(gdiName);
+        return current is null
+            ? null
+            : new DevModeSnapshot(gdiName, current.Value.dmPelsWidth, current.Value.dmPelsHeight, current.Value.dmDisplayFrequency);
+    }
+
+    private void CaptureAppliedModes()
+    {
+        foreach (DisplayPath path in _inventory.Query().ActivePaths)
+        {
+            if (!string.IsNullOrEmpty(path.SourceGdiName) && ReadCurrentSnapshot(path.SourceGdiName) is { } current)
+            {
+                _appliedModes[path.SourceGdiName] = current;
+            }
+        }
+    }
+
+    /// <summary>Selects snapshots whose GDI source is still active after a topology restore.</summary>
+    internal static IReadOnlyList<DevModeSnapshot> SnapshotsForActiveDisplays(
+        IEnumerable<DevModeSnapshot> snapshots,
+        DisplayTopology topology)
+    {
+        ArgumentNullException.ThrowIfNull(snapshots);
+        ArgumentNullException.ThrowIfNull(topology);
+        var activeNames = topology.ActivePaths
+            .Select(p => p.SourceGdiName)
+            .Where(name => !string.IsNullOrEmpty(name))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        return snapshots.Where(snapshot => activeNames.Contains(snapshot.GdiName)).ToList();
     }
 
     /// <summary>Attempts every snapshot and returns only those that still need a retry.</summary>

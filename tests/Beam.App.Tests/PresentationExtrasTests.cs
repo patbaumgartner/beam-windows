@@ -49,6 +49,31 @@ public class PresentationExtrasTests
     }
 
     [Fact]
+    public async Task Restore_UserReenabledNotifications_PreservesUserChoice()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        await h.Manager.ApplyNowAsync();
+        h.Dnd.SnapshotResult = true;
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Equal(new[] { false }, h.Dnd.Requested);
+        Assert.Empty(h.Dnd.Requested.Skip(1));
+    }
+
+    [Fact]
+    public async Task Restore_UserChangedAudioEndpoint_PreservesUserChoice()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        await h.Manager.ApplyNowAsync();
+        h.Audio.DefaultEndpoint = "user-headphones";
+
+        await h.Manager.RestoreNowAsync();
+
+        Assert.Empty(h.Audio.Restored);
+    }
+
+    [Fact]
     public async Task ExtrasFailure_NeverFailsSession()
     {
         using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
@@ -60,6 +85,18 @@ public class PresentationExtrasTests
         Assert.Equal(SessionState.Active, h.Session.State);    // failures isolated
         Assert.Equal(1, h.KeepAwake.HoldCalls);                // the other extras still applied
         Assert.False(h.Manager.IsSafeMode);
+    }
+
+    [Fact]
+    public async Task AudioWithoutCapturedPreviousEndpoint_SkipsSwitch()
+    {
+        using var h = new PresentationHarness(Topologies.MirroredWithMismatch(), ScaleAt200);
+        h.Audio.DefaultEndpoint = null;
+
+        await h.Manager.ApplyNowAsync();
+
+        Assert.Equal(SessionState.Active, h.Session.State);
+        Assert.Equal(0, h.Audio.SwitchCalls);
     }
 
     [Fact]
@@ -136,6 +173,7 @@ public class PresentationExtrasTests
             Dpi: null,
             Version: JournalRecord.CurrentVersion,
             Extras: new JournalExtras(ToastsWereEnabled: true, PreviousAudioEndpoint: "prev-speakers"));
+        h.Dnd.SnapshotResult = false; // Beam left notifications silenced before the crash
 
         await h.Manager.TryRecoverAsync();
 
@@ -144,6 +182,23 @@ public class PresentationExtrasTests
         Assert.Equal(new[] { "prev-speakers" }, h.Audio.Restored);
         Assert.Equal(1, h.KeepAwake.ReleaseCalls);
         Assert.Equal(1, h.Journal.ClearCalls);
+    }
+
+    [Fact]
+    public async Task CrashRecovery_UserChangedAudioEndpoint_PreservesUserChoice()
+    {
+        using var h = new PresentationHarness(Topologies.Extended(), ScaleAt200);
+        h.Journal.Record = new JournalRecord(
+            true, "fix-sequence-started", DateTimeOffset.Now.ToString("o"), null,
+            Extras: new JournalExtras(PreviousAudioEndpoint: "prev-speakers"),
+            AppliedAudioEndpoint: "hdmi-projector",
+            ModeChangeAttempted: false);
+        h.Audio.DefaultEndpoint = "user-headphones";
+
+        await h.Manager.TryRecoverAsync();
+
+        Assert.Equal(SessionState.Idle, h.Session.State);
+        Assert.Empty(h.Audio.Restored);
     }
 
     [Fact]
@@ -172,7 +227,7 @@ public class PresentationExtrasTests
 
             Assert.NotNull(j);
             Assert.True(j!.IsActive);
-            Assert.Equal(1, j.Version);
+            Assert.Equal(JournalRecord.CurrentVersion, j.Version);
             Assert.NotNull(j.Extras);
             Assert.Equal(true, j.Extras!.ToastsWereEnabled);
             Assert.Equal("prev-speakers", j.Extras.PreviousAudioEndpoint);

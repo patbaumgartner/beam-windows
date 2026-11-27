@@ -91,6 +91,32 @@ which fires the same `WM_DISPLAYCHANGE` events as Win+P / a cable pull. Recorded
     4K rows (H6/H14) still need a real 4K display.
 - **H7** (sleep/wake) still pending a physical wake with the monitor attached.
 
+### 2026-11-27 — repaired production build, DELL U2718Q + SONY PJ
+
+Real Windows production tests on the 16:10 XPS 9320. The original failures were reproduced
+before repair: Mirror verification stayed red after a valid source change, the 27-byte default
+Night Light value was rejected, and disconnect restore failed while writing the disconnected
+external DEVMODE. A SONY PJ also demonstrated that manual 16:9 override cannot require its
+original automatic trigger to clear when the projector signal remains 1920x1200.
+
+- **PASS — Mirror Apply/Undo on DELL U2718Q.** Shared source reached 16:9, session reached
+  Active, Night Light and DPI were applied, and Undo restored the captured Extend topology,
+  source modes, DPI, Night Light, and extras.
+- **PASS — automatic duplicate detection.** A forced aspect mismatch produced one automatic
+  apply and a valid 16:9 Active session; Undo restored the baseline.
+- **PASS — disconnect recovery.** Disabling the external path restored the internal panel and
+  cleared the journal. The disconnected target's DEVMODE is now skipped instead of leaving the
+  session permanently Active with recovery armed.
+- **PASS — Night Light.** Both the default and per-device values turned off and restored
+  semantically, including the timestamp-less 27-byte default layout.
+- **PASS — real UI and CLI.** Settings controls/persistence, diagnostics export sanitization,
+  startup toggle, pause/resume, single-instance behavior, documented CLI commands, JSON,
+  reachable exit codes, and final Idle/no-journal state all passed.
+- **SONY evidence.** The SONY PJ was disconnected before the final rerun, so this remains
+  evidence of the reproduced defect and its regression coverage, not a final SONY hardware pass.
+  No HDMI/projector audio endpoint was exposed on either tested rig; actual audio switching is
+  still pending suitable hardware (H15).
+
 ### 2026-11-15 — rerun after U2718Q re-attach, DELL U2718Q stand-in rig, Beam 0.2.0 (commit 37ec3db)
 
 U2718Q physically re-attached ~09:04 (PnP `Status=OK`, targetId 4165 active again,

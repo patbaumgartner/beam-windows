@@ -8,6 +8,36 @@ Current version is **0.3.1** (per `installer/build.ps1` default).
 
 ## [Unreleased]
 
+### Changed
+- **Presentation ownership is explicit.** While the tray is running, direct `beam apply` and
+  `beam restore` are refused with a clear instruction to use tray Apply/Undo; the two processes
+  can no longer independently own and restore the same presentation. Standalone CLI mutations
+  now verify the settled topology, roll back partial failures, and persist original mode data.
+- **Manual 16:9 override verification matches its purpose.** Apply verifies that the owned
+  source reached 16:9; only automatic apply additionally requires the external mismatch trigger
+  to clear. Internal-panel target signals no longer invalidate a correct projector mode.
+
+### Fixed
+- **Night Light works on current Windows 11 values.** The codec accepts the captured 27-byte
+  default off/schedule layout with no FILETIME field, while retaining strict validation and
+  semantic restore. Restoration also preserves a newer user/schedule change.
+- **Disconnect and crash recovery are reliable.** Disconnected DEVMODE targets are skipped,
+  applying-state disconnects cannot finish Active, and owned-target identity—not display count—
+  drives restoration. Journals now persist original source modes and whether mode mutation began,
+  so pre-mode crashes do not change topology and standalone restores do not lose source modes.
+- **Restore does not undo unrelated user choices.** No-journal/inactive-journal restore leaves
+  topology alone. Inactive DPI sources are skipped, external-only displays are not mistaken for
+  simulation, Auto-apply exclusions are honored during verification, and mode/DPI/Night Light/
+  notification/audio restoration preserves newer user changes. Audio is never switched without
+  a captured inverse.
+- **Topology and status edge cases.** Shared-desktop duplicate detection works when the topology
+  ID is unavailable, and stale `status.json` records are ignored unless the recorded Beam process
+  is actually live.
+- **Raw production logs no longer include the user-profile path** from startup or Open Log Folder.
+- **Production verification added:** repeatable hardware, CLI/Night Light, and real-UI suites.
+  Current suite: **1017 tests, 0 failed**. Real DELL U2718Q Mirror apply/Undo, automatic trigger,
+  and disconnect recovery pass; real Settings/Diagnostics controls and sanitized exports pass.
+
 ## [0.3.1] — 2026-11-25
 
 ### Changed

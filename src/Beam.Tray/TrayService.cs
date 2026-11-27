@@ -441,8 +441,7 @@ public sealed class TrayService : IDisposable
         var logsItem = new ToolStripMenuItem("Open log folder");
         logsItem.Click += (_, _) =>
         {
-            Log.Info("Open log folder requested from tray menu", "Tray",
-                ("dir", FileLogSink.DefaultDirectory));
+            Log.Info("Open log folder requested from tray menu", "Tray");
             try
             {
                 // A7: explicit shell launch — explorer.exe is resolved via the shell.

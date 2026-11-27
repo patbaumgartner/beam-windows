@@ -206,4 +206,21 @@ public class DisplayTopologyTests
         var topology = new DisplayTopology(paths, DisplayTopologyId.Clone);
         Assert.False(topology.HasMirrorAspectMismatch);
     }
+
+    [Fact]
+    public void HasMirrorAspectMismatch_IgnoresInternalSignalAfterExternalIsFixed()
+    {
+        // Captured from an XPS 9320 + HP Z27u G3 after Beam applied 2560x1440.
+        // The external signal is fixed; only the laptop keeps its native 16:10 signal.
+        var paths = new List<DisplayPath>
+        {
+            Path(0, 1, "Laptop", "Internal", true, true, 2560, 1440, 3840, 2400),
+            Path(1, 2, "HP Z27u G3", "DisplayPort external", true, false, 2560, 1440, 2560, 1440),
+        };
+
+        var topology = new DisplayTopology(paths, DisplayTopologyId.Clone);
+
+        Assert.False(topology.HasMirrorAspectMismatch);
+        Assert.False(TriggerCondition.IsMet(topology));
+    }
 }

@@ -54,7 +54,9 @@ Visual result after Beam:
 8. Settle 300 ms, then set the **source** DPI so that logical width is in
    `[1280, 2560]` (for 1920x1080 -> **100%**), via `-4`; verify via `-3` (UC-05).
 9. Turn Night Light off (UC-06).
-10. Verify both targets report the chosen mode; if not, revert mode + DPI.
+10. Verify the owned source reports a 16:9 mode and, for automatic apply, the external
+    mismatch trigger clears. Manual Apply is an explicit 16:9 override and may present on a
+    same-aspect target whose native signal remains different. Revert on verification failure.
 11. Toast: `Duplicate · 1920x1080 · 100% · Night Light off`.
 
 ## Alternative flows
@@ -83,7 +85,7 @@ Visual result after Beam:
 - AC3: unplug restores 3840x2400 @ 200% exactly.
 - AC4: 10 duplicate/extend toggles produce one coherent session.
 - AC5: empty intersection -> no mutation.
-- AC6: both targets verified after apply.
+- AC6: the owned source is verified 16:9 after apply; automatic apply also clears the external mismatch trigger.
 - AC7: the laptop panel is only ever set to a mode it advertises.
 
 ## Edge cases

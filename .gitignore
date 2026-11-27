@@ -22,6 +22,11 @@ TestResults/
 .env.*
 !.env.example
 
+# Local agent verification state
+/GATES.md
+/.unlazy/
+/.unlazy-hook-state.json
+
 # OS
 Thumbs.db
 .DS_Store

@@ -27,6 +27,13 @@ var app = new CliApp(
     new NightLightController(),
     new JournalStore(),
     lockFactory: () => DisplayOperationLock.TryAcquire(),
-    statusReader: () => StatusFile.TryRead());
+    statusReader: () => StatusFile.TryRead(),
+    statusProcessAlive: IsBeamProcess);
 
 return app.Run(args);
+
+static bool IsBeamProcess(int pid)
+{
+    using var process = System.Diagnostics.Process.GetProcessById(pid);
+    return process.ProcessName.Equals("Beam", StringComparison.OrdinalIgnoreCase);
+}

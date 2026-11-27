@@ -38,6 +38,14 @@ internal static class CliTopologies
         },
         DisplayTopologyId.Clone);
 
+    public static DisplayTopology FixedMirrored() => new(
+        new[]
+        {
+            Path(0, 1, "Laptop", isInternal: true, 1920, 1080, 3840, 2400),
+            Path(1, 2, "DELL", isInternal: false, 1920, 1080, 1920, 1080),
+        },
+        DisplayTopologyId.Clone);
+
     public static DisplayTopology Extended() => new(
         new[]
         {
@@ -82,18 +90,33 @@ internal sealed class CliModeController : IDisplayModeController
 {
     public string? ApplyResult { get; set; }
     public string? RestoreResult { get; set; }
+    public IReadOnlyList<DisplayModeSnapshot> OriginalModes { get; set; } = Array.Empty<DisplayModeSnapshot>();
+    public IReadOnlyList<DisplayModeSnapshot> AppliedModes { get; set; } = Array.Empty<DisplayModeSnapshot>();
+    public IReadOnlyList<DisplayModeSnapshot>? LastRestoredSnapshots { get; private set; }
+    public IReadOnlyList<DisplayModeSnapshot>? LastAppliedRestoredSnapshots { get; private set; }
     public int ApplyCalls { get; private set; }
     public int RestoreCalls { get; private set; }
+    public Action? OnApply { get; set; }
 
     public string? ApplyCloneWith16x9(bool preferNative = true)
     {
         ApplyCalls++;
+        if (ApplyResult is null)
+        {
+            OnApply?.Invoke();
+        }
+
         return ApplyResult;
     }
 
     public string? ApplyExtendWith16x9(bool preferNative = true)
     {
         ApplyCalls++;
+        if (ApplyResult is null)
+        {
+            OnApply?.Invoke();
+        }
+
         return ApplyResult;
     }
 
@@ -101,6 +124,20 @@ internal sealed class CliModeController : IDisplayModeController
     {
         RestoreCalls++;
         return RestoreResult;
+    }
+
+    public string? Restore(IReadOnlyList<DisplayModeSnapshot> snapshots)
+    {
+        LastRestoredSnapshots = snapshots;
+        return Restore();
+    }
+
+    public string? Restore(
+        IReadOnlyList<DisplayModeSnapshot> snapshots,
+        IReadOnlyList<DisplayModeSnapshot> appliedModes)
+    {
+        LastAppliedRestoredSnapshots = appliedModes;
+        return Restore(snapshots);
     }
 }
 
@@ -164,7 +201,8 @@ internal sealed class CliJournalStore : IJournalStore
         string reason,
         IReadOnlyList<NightLightSnapshot>? nightLight,
         IReadOnlyList<JournalDpiEntry>? dpi = null,
-        JournalExtras? extras = null)
+        JournalExtras? extras = null,
+        IReadOnlyList<DisplayModeSnapshot>? modes = null)
     {
         if (ThrowOnBegin)
         {
@@ -175,7 +213,32 @@ internal sealed class CliJournalStore : IJournalStore
         LastDpi = dpi;
         LastExtras = extras;
         Record = new JournalRecord(
-            true, reason, DateTimeOffset.Now.ToString("o"), null, dpi, JournalRecord.CurrentVersion, extras);
+            true, reason, DateTimeOffset.Now.ToString("o"), null, dpi, JournalRecord.CurrentVersion,
+            extras, modes, ModeChangeAttempted: false);
+    }
+
+    public void MarkModeChangeAttempted()
+    {
+        if (Record is not null)
+        {
+            Record = Record with { ModeChangeAttempted = true };
+        }
+    }
+
+    public void MarkApplied(
+        IReadOnlyList<DisplayModeSnapshot>? modes = null,
+        int? dpiPercent = null,
+        string? audioEndpoint = null)
+    {
+        if (Record is not null)
+        {
+            Record = Record with
+            {
+                AppliedModes = modes ?? Record.AppliedModes,
+                AppliedDpiPercent = dpiPercent ?? Record.AppliedDpiPercent,
+                AppliedAudioEndpoint = audioEndpoint ?? Record.AppliedAudioEndpoint,
+            };
+        }
     }
 
     public JournalRecord? Read() => Record;
@@ -193,6 +256,7 @@ internal sealed class CliHarness
     public CliHarness(DisplayTopology topology)
     {
         Topology.Topology = topology;
+        Mode.OnApply = () => Topology.Topology = CliTopologies.FixedMirrored();
     }
 
     public CliTopologySource Topology { get; } = new();
@@ -213,7 +277,10 @@ internal sealed class CliHarness
     /// <summary>B6: status-file reader injected into <see cref="CliApp"/> (null = no tray status).</summary>
     public Func<StatusFileRecord?>? StatusReader { get; set; }
 
-    public CliApp App => new(Topology, Mode, Dpi, NightLight, Journal, Out, Error, LockFactory, StatusReader);
+    public Func<int, bool>? StatusProcessAlive { get; set; }
+
+    public CliApp App => new(
+        Topology, Mode, Dpi, NightLight, Journal, Out, Error, LockFactory, StatusReader, StatusProcessAlive);
 
     public int Run(params string[] args) => App.Run(args);
 

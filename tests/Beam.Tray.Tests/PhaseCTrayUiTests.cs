@@ -67,7 +67,9 @@ public class PhaseCTrayUiTests
 
     private sealed class FakeJournal : IJournalStore
     {
-        public void BeginApply(string reason, IReadOnlyList<NightLightSnapshot>? nightLight, IReadOnlyList<JournalDpiEntry>? dpi = null, JournalExtras? extras = null) { }
+        public void BeginApply(string reason, IReadOnlyList<NightLightSnapshot>? nightLight, IReadOnlyList<JournalDpiEntry>? dpi = null, JournalExtras? extras = null, IReadOnlyList<DisplayModeSnapshot>? modes = null) { }
+        public void MarkModeChangeAttempted() { }
+        public void MarkApplied(IReadOnlyList<DisplayModeSnapshot>? modes = null, int? dpiPercent = null, string? audioEndpoint = null) { }
         public JournalRecord? Read() => null;
         public void Clear() { }
     }

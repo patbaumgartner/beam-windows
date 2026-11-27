@@ -18,6 +18,33 @@ public interface ITopologySource
 /// </summary>
 public interface IDisplayModeController
 {
+    /// <summary>Captures restorable source modes before the recovery journal is written.</summary>
+    void Prepare()
+    {
+    }
+
+    /// <summary>Discards prepared state after an apply aborts before any mutation.</summary>
+    void Abort()
+    {
+    }
+
+    /// <summary>Original modes captured by <see cref="Prepare"/>, when supported.</summary>
+    IReadOnlyList<DisplayModeSnapshot> OriginalModes => Array.Empty<DisplayModeSnapshot>();
+
+    /// <summary>True after the controller actually changed topology or a source mode.</summary>
+    bool HasModeChanged => true;
+
+    /// <summary>Verified modes applied by this controller, when supported.</summary>
+    IReadOnlyList<DisplayModeSnapshot> AppliedModes => Array.Empty<DisplayModeSnapshot>();
+
+    /// <summary>Rehydrates original modes from another process's recovery journal.</summary>
+    string? Restore(IReadOnlyList<DisplayModeSnapshot> snapshots) => Restore();
+
+    /// <summary>Rehydrates original and applied modes so restore can preserve user drift.</summary>
+    string? Restore(
+        IReadOnlyList<DisplayModeSnapshot> snapshots,
+        IReadOnlyList<DisplayModeSnapshot> appliedModes) => Restore(snapshots);
+
     /// <summary>
     /// Enters clone/duplicate mode and switches the shared source to the best supported
     /// 16:9 mode.

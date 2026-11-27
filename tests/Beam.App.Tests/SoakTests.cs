@@ -309,6 +309,7 @@ public class SoakTests
 
             Assert.True(kill.Fired, $"kill point {k} was never reached");
             bool journalWasActive = journal.Record is { IsActive: true };
+            bool modeRecoveryExpected = journalWasActive && (journal.Record!.ModeChangeAttempted ?? true);
 
             // "Next start": a fresh process sharing only the journal.
             using var p2 = new SimProcess(Topologies.MirroredWithMismatch(), journal, kill: null);
@@ -318,13 +319,10 @@ public class SoakTests
             Assert.False(p2.Manager.IsSafeMode);
             if (journalWasActive)
             {
-                Assert.Null(journal.Record);        // recovery cleared it
-                Assert.Equal(1, p2.Mode.RestoreCalls); // exactly one recovery restore
+                Assert.Null(journal.Record); // recovery cleared it, including a pre-mode journal
             }
-            else
-            {
-                Assert.Equal(0, p2.Mode.RestoreCalls); // nothing was persisted → nothing to do
-            }
+
+            Assert.Equal(modeRecoveryExpected ? 1 : 0, p2.Mode.RestoreCalls);
 
             // Let the "killed" process unwind after the assertions, so no thread leaks.
             kill.Release.SetResult();

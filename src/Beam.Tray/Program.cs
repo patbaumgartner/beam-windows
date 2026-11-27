@@ -157,7 +157,7 @@ internal static class Program
             ("args", string.Join(",", args)),
             ("hidden", hidden),
             ("dpiAware", true),
-            ("logFile", sink.DetailedLogPath));
+            ("logFile", Path.GetFileName(sink.DetailedLogPath)));
 
         // Single instance per user. Without this, an autostart instance and a manual
         // launch would run two monitor loops and could double-apply the display fix.

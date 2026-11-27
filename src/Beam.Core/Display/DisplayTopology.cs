@@ -133,12 +133,12 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
     /// this is the canonical signal — grouping by source id alone is not enough.
     /// </summary>
     /// <remarks>
-    /// When <see cref="CurrentTopologyId"/> could not be read (0), falls back to the
-    /// source-id grouping heuristic so a failed topology read never silently disables the
-    /// presentation trigger.
+    /// When <see cref="CurrentTopologyId"/> could not be read (0), falls back to source-id
+    /// and shared-desktop grouping heuristics so a failed topology read never silently
+    /// disables the presentation trigger.
     /// </remarks>
     public bool IsMirrored => CurrentTopologyId == 0
-        ? ActiveCloneGroups.Any(g => g.IsClone)
+        ? ActiveCloneGroups.Any(g => g.IsClone) || SharedDesktopGroups(ActivePaths).Count > 0
         : CurrentTopologyId == DisplayTopologyId.Clone;
 
     /// <summary>Groups active paths by adapter-scoped source. Groups with multiple paths are clones.</summary>
@@ -172,6 +172,19 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
             ? ActivePaths
             : ActivePaths.Where(p => !ignoredIdentities.Contains(p.Target.Identity)).ToList();
 
+    private static IReadOnlyList<IReadOnlyList<DisplayPath>> SharedDesktopGroups(IEnumerable<DisplayPath> paths) =>
+        paths
+            .Where(p => p.SourceMode is { Width: > 0, Height: > 0 })
+            .GroupBy(p => (
+                p.AdapterId,
+                p.SourceMode!.Width,
+                p.SourceMode!.Height,
+                p.DesktopX,
+                p.DesktopY))
+            .Where(g => g.Count() > 1)
+            .Select(g => (IReadOnlyList<DisplayPath>)g.ToList())
+            .ToList();
+
     /// <summary>
     /// True when an external display is mirrored (loop-back sources share one desktop
     /// width/height) and its owned target signal differs from the shared source aspect —
@@ -188,18 +201,14 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
     {
         if (!IsMirrored)
         {
-            // Two separate sources, each driving one target: extend-mode "same shape"
-            // coincidences must not count. The OS topology id is the only reliable
-            // signal for "duplicate".
+            // Separate sources on separate desktops can have the same shape in extend
+            // mode; those coincidences must not count as duplicate.
             return false;
         }
 
         // Group by desktop identity (source size + position), not source id: on this
         // machine Windows 11 represents "Duplicate" as two sources sharing a desktop.
-        var groups = ActivePathsIgnoring(ignoredIdentities)
-            .GroupBy(p => (p.AdapterId, p.SourceMode?.Width ?? 0, p.SourceMode?.Height ?? 0, p.DesktopX, p.DesktopY))
-            .Where(g => g.Count() > 1)
-            .ToList();
+        var groups = SharedDesktopGroups(ActivePathsIgnoring(ignoredIdentities));
 
         if (groups.Count == 0)
         {
@@ -208,6 +217,9 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
 
         foreach (var group in groups)
         {
+            // The laptop panel commonly keeps its native 16:10 target signal after the
+            // shared source and external projector have correctly switched to 16:9.
+            // Only external targets determine whether the projector still has bars.
             DisplayMode? mode = group.First().SourceMode;
             if (mode is null)
             {
@@ -217,7 +229,7 @@ public sealed record DisplayTopology(IReadOnlyList<DisplayPath> Paths, uint Curr
             uint width = mode.Width;
             uint height = mode.Height;
 
-            foreach (DisplayPath path in group)
+            foreach (DisplayPath path in group.Where(p => !p.Target.IsInternal))
             {
                 DisplayMode? targetMode = path.TargetMode;
                 if (targetMode is null)

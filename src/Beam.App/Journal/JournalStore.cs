@@ -2,6 +2,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using Beam.Core.Diagnostics;
+using Beam.Core.Display;
 using Beam.Core.NightLight;
 
 namespace Beam.App.Journal;
@@ -56,7 +57,8 @@ public sealed class JournalStore : IJournalStore
         string reason,
         IReadOnlyList<NightLightSnapshot>? nightLight,
         IReadOnlyList<JournalDpiEntry>? dpi = null,
-        JournalExtras? extras = null)
+        JournalExtras? extras = null,
+        IReadOnlyList<DisplayModeSnapshot>? modes = null)
     {
         var journal = new JournalRecord(
             IsActive: true,
@@ -66,8 +68,40 @@ public sealed class JournalStore : IJournalStore
                 n.KeyPath, n.ValueName, Convert.ToBase64String(n.RawBytes))).ToList(),
             Dpi: dpi is { Count: > 0 } ? dpi.ToList() : null,
             Version: JournalRecord.CurrentVersion,
-            Extras: extras);
+            Extras: extras,
+            Modes: modes,
+            ModeChangeAttempted: false);
         Write(journal);
+    }
+
+    /// <inheritdoc />
+    public void MarkModeChangeAttempted()
+    {
+        lock (_writeLock)
+        {
+            JournalRecord record = ReadCore()
+                ?? throw new IOException("Could not mark display-mode recovery state without a journal.");
+            Write(record with { ModeChangeAttempted = true });
+        }
+    }
+
+    /// <inheritdoc />
+    public void MarkApplied(
+        IReadOnlyList<DisplayModeSnapshot>? modes = null,
+        int? dpiPercent = null,
+        string? audioEndpoint = null)
+    {
+        lock (_writeLock)
+        {
+            JournalRecord record = ReadCore()
+                ?? throw new IOException("Could not record applied recovery state without a journal.");
+            Write(record with
+            {
+                AppliedModes = modes ?? record.AppliedModes,
+                AppliedDpiPercent = dpiPercent ?? record.AppliedDpiPercent,
+                AppliedAudioEndpoint = audioEndpoint ?? record.AppliedAudioEndpoint,
+            });
+        }
     }
 
     /// <summary>

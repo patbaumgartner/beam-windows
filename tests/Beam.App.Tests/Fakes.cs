@@ -68,6 +68,20 @@ internal static class Topologies
         },
         DisplayTopologyId.Extend);
 
+    public static DisplayTopology ExternalOnly() => new(
+        new[]
+        {
+            Path(0, 2, "Projector", isInternal: false, active: true, 3840, 2400, 3840, 2160),
+        },
+        DisplayTopologyId.External);
+
+    public static DisplayTopology ExternalOnlyFixed16x9() => new(
+        new[]
+        {
+            Path(0, 2, "Projector", isInternal: false, active: true, 1920, 1080, 1920, 1080),
+        },
+        DisplayTopologyId.External);
+
     /// <summary>Internal panel only — no external display connected (simulated presentation).</summary>
     public static DisplayTopology InternalOnly() => new(
         new[]
@@ -119,6 +133,11 @@ internal sealed class FakeModeController : IDisplayModeController
 {
     public string? ApplyResult { get; set; }
     public string? RestoreResult { get; set; }
+    public IReadOnlyList<DisplayModeSnapshot> OriginalModes { get; set; } = Array.Empty<DisplayModeSnapshot>();
+    public IReadOnlyList<DisplayModeSnapshot> AppliedModes { get; set; } = Array.Empty<DisplayModeSnapshot>();
+    public int AbortCalls { get; private set; }
+    public IReadOnlyList<DisplayModeSnapshot>? LastRestoredSnapshots { get; private set; }
+    public IReadOnlyList<DisplayModeSnapshot>? LastAppliedRestoredSnapshots { get; private set; }
     public int ApplyCalls { get; private set; }
     public int ExtendCalls { get; private set; }
     public int RestoreCalls { get; private set; }
@@ -134,6 +153,13 @@ internal sealed class FakeModeController : IDisplayModeController
 
     /// <summary>C1: the last <c>preferNative</c> value passed in (tests can pin it).</summary>
     public bool? LastPreferNative { get; private set; }
+
+    public void Abort()
+    {
+        AbortCalls++;
+        OriginalModes = Array.Empty<DisplayModeSnapshot>();
+        AppliedModes = Array.Empty<DisplayModeSnapshot>();
+    }
 
     public string? ApplyCloneWith16x9(bool preferNative = true)
     {
@@ -169,6 +195,20 @@ internal sealed class FakeModeController : IDisplayModeController
         RestoreCalls++;
         return RestoreResult;
     }
+
+    public string? Restore(IReadOnlyList<DisplayModeSnapshot> snapshots)
+    {
+        LastRestoredSnapshots = snapshots;
+        return Restore();
+    }
+
+    public string? Restore(
+        IReadOnlyList<DisplayModeSnapshot> snapshots,
+        IReadOnlyList<DisplayModeSnapshot> appliedModes)
+    {
+        LastAppliedRestoredSnapshots = appliedModes;
+        return Restore(snapshots);
+    }
 }
 
 internal sealed class FakeDpiController : IDpiController
@@ -194,6 +234,11 @@ internal sealed class FakeDpiController : IDpiController
         BeforeCall?.Invoke();
         LastSetPath = path;
         RequestedPercents.Add(percent);
+        if (SetResult && ReadResult?.Value is { } value && value.RelativeFor(percent) is { } relative)
+        {
+            ReadResult = DpiScale.From(value.MinRel, relative, value.MaxRel);
+        }
+
         return SetResult;
     }
 }
@@ -242,6 +287,7 @@ internal sealed class FakeJournalStore : IJournalStore
     public int ClearCalls { get; private set; }
     public IReadOnlyList<NightLightSnapshot>? LastBegin { get; private set; }
     public IReadOnlyList<JournalDpiEntry>? LastDpi { get; private set; }
+    public IReadOnlyList<DisplayModeSnapshot>? LastModes { get; private set; }
     public JournalExtras? LastExtras { get; private set; }
     public bool ThrowOnBegin { get; set; }
 
@@ -252,7 +298,8 @@ internal sealed class FakeJournalStore : IJournalStore
         string reason,
         IReadOnlyList<NightLightSnapshot>? nightLight,
         IReadOnlyList<JournalDpiEntry>? dpi = null,
-        JournalExtras? extras = null)
+        JournalExtras? extras = null,
+        IReadOnlyList<DisplayModeSnapshot>? modes = null)
     {
         BeforeCall?.Invoke();
         if (ThrowOnBegin)
@@ -264,8 +311,36 @@ internal sealed class FakeJournalStore : IJournalStore
         LastBegin = nightLight;
         LastDpi = dpi;
         LastExtras = extras;
+        LastModes = modes;
         Record = new JournalRecord(
-            true, reason, DateTimeOffset.Now.ToString("o"), null, dpi, JournalRecord.CurrentVersion, extras);
+            true, reason, DateTimeOffset.Now.ToString("o"), null, dpi, JournalRecord.CurrentVersion,
+            extras, modes, ModeChangeAttempted: false);
+    }
+
+    public void MarkModeChangeAttempted()
+    {
+        BeforeCall?.Invoke();
+        if (Record is not null)
+        {
+            Record = Record with { ModeChangeAttempted = true };
+        }
+    }
+
+    public void MarkApplied(
+        IReadOnlyList<DisplayModeSnapshot>? modes = null,
+        int? dpiPercent = null,
+        string? audioEndpoint = null)
+    {
+        BeforeCall?.Invoke();
+        if (Record is not null)
+        {
+            Record = Record with
+            {
+                AppliedModes = modes ?? Record.AppliedModes,
+                AppliedDpiPercent = dpiPercent ?? Record.AppliedDpiPercent,
+                AppliedAudioEndpoint = audioEndpoint ?? Record.AppliedAudioEndpoint,
+            };
+        }
     }
 
     public JournalRecord? Read()
@@ -315,6 +390,7 @@ internal sealed class FakeDndController : IDndController
             throw new InvalidOperationException("simulated DND failure");
         }
 
+        SnapshotResult = enabled;
         Requested.Add(enabled);
         return SetResult;
     }
@@ -345,6 +421,7 @@ internal sealed class FakeAudioController : IAudioController
             throw new InvalidOperationException("simulated audio failure");
         }
 
+        DefaultEndpoint = HdmiEndpoint;
         return HdmiEndpoint;
     }
 

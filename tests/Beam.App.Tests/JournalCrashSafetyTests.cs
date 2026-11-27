@@ -1,5 +1,6 @@
 using System.IO;
 using Beam.App.Journal;
+using Beam.Core.Display;
 using Beam.Core.NightLight;
 
 namespace Beam.App.Tests;
@@ -59,6 +60,25 @@ public class JournalCrashSafetyTests : IDisposable
         Assert.Equal("test", read.Reason);
         Assert.NotNull(read.NightLight);
         Assert.Equal(2, read.NightLight!.Count);
+    }
+
+    [Fact]
+    public void ModeSnapshots_AndAttemptMarker_RoundTrip()
+    {
+        var store = new JournalStore(_dir);
+        var modes = new[] { new DisplayModeSnapshot(@"\\.\DISPLAY1", 3840, 2400, 60) };
+
+        store.BeginApply("test", null, modes: modes);
+        store.MarkModeChangeAttempted();
+        store.MarkApplied(modes, 100, "hdmi-projector");
+        JournalRecord? read = store.Read();
+
+        Assert.NotNull(read);
+        Assert.True(read!.ModeChangeAttempted);
+        Assert.Equal(modes, read.Modes);
+        Assert.Equal(modes, read.AppliedModes);
+        Assert.Equal(100, read.AppliedDpiPercent);
+        Assert.Equal("hdmi-projector", read.AppliedAudioEndpoint);
     }
 
     [Fact]

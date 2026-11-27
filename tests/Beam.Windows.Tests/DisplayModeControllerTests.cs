@@ -215,6 +215,19 @@ public class DisplayModeControllerTests
     }
 
     [Fact]
+    public void ShouldRestoreMode_OnlyWhenCurrentModeIsStillTheAppliedMode()
+    {
+        var applied = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY1", 1920, 1080, 60);
+        var same = applied with { };
+        var userChanged = applied with { Width = 1280, Height = 720 };
+
+        Assert.True(DisplayModeController.ShouldRestoreMode(null, userChanged));
+        Assert.True(DisplayModeController.ShouldRestoreMode(applied, same));
+        Assert.False(DisplayModeController.ShouldRestoreMode(applied, userChanged));
+        Assert.True(DisplayModeController.ShouldRestoreMode(applied, null));
+    }
+
+    [Fact]
     public void RestoreSnapshots_RetainsOnlyFailures_AndAttemptsEveryDisplay()
     {
         var first = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY1", 1920, 1200, 60);
@@ -231,6 +244,24 @@ public class DisplayModeControllerTests
 
         Assert.Equal(new[] { first.GdiName, second.GdiName, third.GdiName }, attempted);
         Assert.Equal(new[] { first, third }, failed);
+    }
+
+    [Fact]
+    public void SnapshotsForActiveDisplays_SkipsDisconnectedTarget()
+    {
+        var internalSnapshot = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY1", 3840, 2400, 60);
+        var disconnectedProjector = new DisplayModeController.DevModeSnapshot(@"\\.\DISPLAY2", 1920, 1080, 60);
+        var topology = new DisplayTopology(new[]
+        {
+            Path(@"\\.\DISPLAY1", 0, isInternal: true, active: true),
+            Path(@"\\.\DISPLAY2", 1, isInternal: false, active: false),
+        }, DisplayTopologyId.Internal);
+
+        IReadOnlyList<DisplayModeController.DevModeSnapshot> connected =
+            DisplayModeController.SnapshotsForActiveDisplays(
+                new[] { internalSnapshot, disconnectedProjector }, topology);
+
+        Assert.Equal(new[] { internalSnapshot }, connected);
     }
 
     private static DisplayPath Path(string gdi, uint sourceId, bool isInternal, bool active) =>
