@@ -41,7 +41,7 @@ body:
     id: version
     attributes:
       label: Beam version
-      placeholder: "0.3.1 (from `beam help --json`)"
+      placeholder: "0.3.2 (from `beam help --json`)"
     validations:
       required: true
   - type: input

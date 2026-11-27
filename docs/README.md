@@ -2,11 +2,11 @@
 
 > Plug in. Look right. Every time.
 
-**Status:** Plan accepted by the product owner. **0.3.1 shipped 2026-11-25** (maintenance rebuild of 0.3.0), building on
+**Status:** Plan accepted by the product owner. **0.3.2 shipped 2026-11-27** (production-safety patch on 0.3.1), building on
 0.2.0 "Presenter Edition" with Mirror/Extend projector-screen selection, simulated
 presentation mode for manual apply without a projector, self-contained distributions, a real
 `beam` command, and broad reliability hardening. `Win+P` remains reserved for Windows
-(default hotkey `Win+Alt+P`). See [CHANGELOG.md](../CHANGELOG.md) §0.3.1 — 1017 tests, 0 failed.
+(default hotkey `Win+Alt+P`). See [CHANGELOG.md](../CHANGELOG.md) §0.3.2 — 1017 tests, 0 failed.
 **Author:** planning session, 2026-10-29 (refactor documented 2026-11-01)
 **Target OS:** Windows 11 (validated against 26H2, build 26300)
 **Target PowerToys:** 0.102.3001.0 (released 2026-10-27)

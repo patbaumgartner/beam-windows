@@ -224,7 +224,7 @@ JRSoftware.InnoSetup`).
 
 ```powershell
 .\installer\build.ps1                 # publish + compile to .\artifacts
-.\installer\build.ps1 -Version 0.3.1  # tag a different version
+.\installer\build.ps1 -Version 0.3.2  # tag a different version
 ```
 
 CI builds a snapshot installer on every push to `main` and a release installer for every
@@ -251,12 +251,12 @@ against the hardware matrix in [test-strategy.md](docs/05-delivery/test-strategy
 ## Roadmap & status
 
 Phase 0–5 milestones are tracked in [docs/05-delivery/roadmap.md](docs/05-delivery/roadmap.md).
-Current status: **0.3.1 shipped 2026-11-25** (maintenance rebuild of 0.3.0) — builds on 0.2.0 "Presenter Edition" with
+Current status: **0.3.2 shipped 2026-11-27** (production-safety patch on 0.3.1) — builds on 0.2.0 "Presenter Edition" with
 Mirror/Extend projector-screen selection, simulated presentation mode for manual apply without
 a projector, self-contained installer and portable distributions, a real `beam` command, and
 broad reliability hardening. `Win+P` remains reserved for Windows (the default is `Win+Alt+P`).
 Releases (installer + portable zip + SHA256SUMS) are published from GitHub Actions, unsigned by
-decision (ADR-0016) — see [CHANGELOG.md](CHANGELOG.md) §0.3.1 (1017 tests, 0 failed).
+decision (ADR-0016) — see [CHANGELOG.md](CHANGELOG.md) §0.3.2 (1017 tests, 0 failed).
 Hardware verification runs are tracked in
 [docs/05-delivery/hardware-matrix.md](docs/05-delivery/hardware-matrix.md). The long-term
 goal remains donating the engine to [PowerToys PowerDisplay](docs/01-research/powertoys-landscape.md).

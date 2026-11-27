@@ -111,7 +111,7 @@ public class CliAppTests
 
         Assert.Equal(ExitCodes.Success, code);
         using JsonDocument doc = JsonDocument.Parse(h.Output);
-        Assert.Equal("0.3.1", doc.RootElement.GetProperty("version").GetString());
+        Assert.Equal("0.3.2", doc.RootElement.GetProperty("version").GetString());
         Assert.True(doc.RootElement.GetProperty("success").GetBoolean());
         Assert.True(doc.RootElement.GetProperty("needsFix").GetBoolean());
         Assert.True(doc.RootElement.GetProperty("mirrored").GetBoolean());

@@ -1,11 +1,14 @@
 # Releasing
 
 Beam versions itself from the `Version` property in
-[`Directory.Build.props`](../../Directory.Build.props) (currently `0.3.1`). The version is
+[`Directory.Build.props`](../../Directory.Build.props) (currently `0.3.2`). The version is
 stamped into the assemblies at build time and into the installer at packaging time.
 
 ## Version scheme
 
+- `0.3.2` — Production-safety patch: explicit CLI/tray ownership, verified 16:9 Mirror apply,
+  reliable disconnect/crash recovery, current Night Light layout, and restored user settings
+  (2026-11-27).
 - `0.3.1` — Maintenance rebuild of the 0.3.0 line: refreshed published artifacts and a
   stabilized CI test, with no product changes (2026-11-25).
 - `0.3.0` — Mirror/Extend projector-screen selection, simulated presentation,
@@ -33,8 +36,8 @@ dotnet format Beam.sln --verify-no-changes
 pwsh eng/check-links.ps1
 
 # Build the installer:
-.\installer\build.ps1                    # -> artifacts\BeamSetup-0.3.1.exe
-.\installer\build.ps1 -Version 0.3.1     # version override
+.\installer\build.ps1                    # -> artifacts\BeamSetup-0.3.2.exe
+.\installer\build.ps1 -Version 0.3.2     # version override
 ```
 
 `installer\build.ps1` reads the default version from `Directory.Build.props`, publishes both
@@ -76,7 +79,7 @@ The fastest ship loop when you only changed code (no installer/registry logic):
 Beam is **not code-signed, by permanent decision** ([ADR-0016](../04-adr/ADR-0016-distribution.md)) —
 there is no signing step, no secrets, nothing to configure. The workflow:
 
-1. Resolve the version from the tag (`v0.3.1` → `0.3.1`).
+1. Resolve the version from the tag (`v0.3.2` → `0.3.2`).
 2. Publish tray + CLI with that version.
 3. Build the installer with Inno Setup (downloaded in the runner).
 4. Package `beam-<version>-portable.zip` + `SHA256SUMS.txt` (`eng/package-snapshot.ps1`).
@@ -86,8 +89,8 @@ there is no signing step, no secrets, nothing to configure. The workflow:
 So releasing is just:
 
 ```powershell
-git tag v0.3.1 # after the gates above pass locally and CI is green
-git push origin v0.3.1
+git tag v0.3.2 # after the gates above pass locally and CI is green
+git push origin v0.3.2
 ```
 
 SmartScreen will show an "unknown publisher" warning on the unsigned download —

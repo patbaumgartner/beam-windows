@@ -45,6 +45,21 @@ notes of the `v*` tag.
 
 ## Run log
 
+### 2026-11-27 — production regression cycle, DELL U2718Q stand-in rig, Beam 0.3.2 (commit 17fd5b7)
+
+- `eng/production-test.ps1 -Suite Hardware`: **PASS** — manual Mirror Apply/Undo, automatic
+  duplicate detection, and disconnect recovery; final baseline compares topology, source/signal
+  modes, refresh rates, and DPI.
+- `eng/production-ui-test.ps1`: **PASS** — Settings persistence, sanitized Diagnostics export,
+  pause/resume, startup toggle, and single-instance behavior on the real desktop.
+- Night Light, CLI, and FinalState suites: **PASS**. Deliberate settings and fingerprint
+  mismatches were rejected by negative controls, then restored.
+- Quality: **1017 tests**, 8/8 acceptance gates, 100/100 mutants, Core 91.0% / App 95.8% /
+  CLI 96.8% coverage.
+- Residual: the SONY PJ disconnected before its final rerun; no tested display exposed an HDMI
+  audio endpoint, so real projector audio switching (H15) remains pending with the other
+  real-projector/dock/KVM/AVR rows.
+
 ### 2026-11-14 — programmatic runbook, DELL U2718Q stand-in rig, Beam 0.2.0 (commit e60ba4f)
 
 Run driven via `SetDisplayConfig` (topology flags + `DISPLAYCONFIG_PATH_ACTIVE` toggles),

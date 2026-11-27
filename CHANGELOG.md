@@ -4,9 +4,18 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
-Current version is **0.3.1** (per `installer/build.ps1` default).
+Current version is **0.3.2** (per `Directory.Build.props` default).
 
 ## [Unreleased]
+
+## [0.3.2] — 2026-11-27
+
+### Verified
+- **Production regression pass on real DELL U2718Q hardware.** Manual Mirror Apply/Undo,
+  automatic duplicate detection, disconnect recovery, real UI controls, CLI commands,
+  Night Light values, and restored final machine state all pass; see
+  [hardware matrix](docs/05-delivery/hardware-matrix.md). Current suite:
+  **1017 tests, 0 failed**.
 
 ### Changed
 - **Presentation ownership is explicit.** While the tray is running, direct `beam apply` and

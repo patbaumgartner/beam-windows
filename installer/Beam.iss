@@ -5,7 +5,7 @@
 ;   (expects publish output at src\Beam.Tray\bin\Release\net10.0-windows\publish)
 
 #ifndef MyAppVersion
-  #define MyAppVersion "0.3.1"
+  #define MyAppVersion "0.3.2"
 #endif
 #define MyAppName "Beam"
 #define MyAppPublisher "Patrick Baumgartner"
